@@ -994,17 +994,6 @@ impl GPUMemoryManager {
         
         Ok(())
     }
-    
-    // Add missing types for compilation
-    use x86_64::{PhysAddr, structures::paging::PhysFrame};
-    
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum GPUVendor {
-        Intel,
-        AMD,
-        Nvidia,
-        Unknown,
-    }
 
     fn free_host_memory(&self, ptr: NonNull<u8>, size: usize) -> Result<(), &'static str> {
         // Production implementation for freeing GPU host memory

@@ -717,9 +717,10 @@ pub fn generate_opensource_driver_report() -> String {
 pub fn has_opensource_drivers() -> bool {
     let registry = DRIVER_REGISTRY.lock();
     !registry.loaded_drivers.is_empty()
-}    //
-/ Initialize hardware communication for the GPU driver
-    fn initialize_hardware_communication(&mut self, gpu_id: u32, pci_device: &PCIDevice, driver: &OpensourceDriver) -> Result<(), &'static str> {
+}
+
+/// Initialize hardware communication for the GPU driver
+fn initialize_hardware_communication(gpu_id: u32, pci_device: &PCIDevice, driver: &OpensourceDriver) -> Result<(), &'static str> {
         match driver.driver_type {
             DriverType::I915 => self.initialize_i915_hardware(gpu_id, pci_device),
             DriverType::AMDGPU => self.initialize_amdgpu_hardware(gpu_id, pci_device),

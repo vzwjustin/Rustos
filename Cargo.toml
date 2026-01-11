@@ -11,7 +11,7 @@ description = "RustOS - Hardware-Optimized AI Operating System with Desktop Envi
 
 [[bin]]
 name = "rustos"
-path = "src/main_linux.rs"
+path = "src/main.rs"
 
 [dependencies]
 # Core bootloader support (compatible with bootimage)

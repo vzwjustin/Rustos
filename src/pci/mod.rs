@@ -687,7 +687,7 @@ fn test_mmconfig_access(entry: &crate::acpi::McfgEntry) -> bool {
 }
 
 /// Global flag indicating if MMCONFIG is available
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::AtomicBool;
 static MMCONFIG_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Get the global PCI scanner
@@ -705,18 +705,19 @@ pub fn get_devices_by_class(class: PciClass) -> Vec<PciDevice> {
     PCI_SCANNER.lock().get_devices_by_class(class).into_iter().cloned().collect()
 }
 
-    /// Validate PCI configuration space access
-    fn validate_pci_access(&self) -> Result<bool, &'static str> {
-        // Test PCI configuration space access by reading a known register
-        // Try to read vendor ID from bus 0, device 0, function 0
-        let test_vendor = self.read_config_word(0, 0, 0, 0x00);
-        
-        // If we get all 1s, PCI access might not be working
-        if test_vendor == 0xFFFF {
-            // This could be normal if no device exists at 0:0.0
-            // Try a few more locations to validate PCI access
-            for device in 0..4 {
-                let vendor = self.read_config_word(0, device, 0, 0x00);
+/// Validate PCI configuration space access
+pub fn validate_pci_access() -> Result<bool, &'static str> {
+    let scanner = PCI_SCANNER.lock();
+    // Test PCI configuration space access by reading a known register
+    // Try to read vendor ID from bus 0, device 0, function 0
+    let test_vendor = scanner.read_config_word(0, 0, 0, 0x00);
+
+    // If we get all 1s, PCI access might not be working
+    if test_vendor == 0xFFFF {
+        // This could be normal if no device exists at 0:0.0
+        // Try a few more locations to validate PCI access
+        for device in 0..4 {
+            let vendor = scanner.read_config_word(0, device, 0, 0x00);
                 if vendor != 0xFFFF && vendor != 0x0000 {
                     return Ok(true); // Found a valid device, PCI access works
                 }
