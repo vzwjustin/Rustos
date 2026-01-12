@@ -38,11 +38,12 @@ pub struct PciAddress {
     pub bus: u8,
     pub device: u8,
     pub function: u8,
+    pub slot: u8,
 }
 
 impl PciAddress {
     pub fn new(bus: u8, device: u8, function: u8) -> Self {
-        Self { bus, device, function }
+        Self { bus, device, function, slot: device }
     }
 
     /// Convert to configuration address format

@@ -530,9 +530,12 @@ impl Ext4FileSystem {
     /// Read directory entries from an inode
     fn read_directory_entries(&self, inode: &Ext4Inode) -> FsResult<Vec<DirectoryEntry>> {
         let mut entries = Vec::new();
-        
+
         // For simplicity, only handle direct blocks (first 12 block pointers)
-        for &block_ptr in &inode.i_block[0..12] {
+        // SAFETY: inode is a packed struct representing EXT4 on-disk format.
+        // We use addr_of! to avoid creating misaligned references.
+        let i_block = unsafe { core::ptr::addr_of!(inode.i_block).read_unaligned() };
+        for &block_ptr in &i_block[0..12] {
             if block_ptr == 0 {
                 break;
             }
@@ -760,9 +763,11 @@ impl FileSystem for Ext4FileSystem {
 
         // For small symlinks, target is stored in i_block
         if metadata.size <= 60 {
+            // SAFETY: inode is a packed struct representing EXT4 on-disk format.
+            // We use addr_of! to avoid creating misaligned references.
             let target_bytes = unsafe {
                 core::slice::from_raw_parts(
-                    inode.i_block.as_ptr() as *const u8,
+                    core::ptr::addr_of!(inode.i_block) as *const u8,
                     metadata.size as usize
                 )
             };

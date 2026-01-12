@@ -174,6 +174,7 @@ pub enum SyscallError {
     IoError = 0xFFFFFFFFFFFFFFF4,
     InvalidExecutable = 0xFFFFFFFFFFFFFFF3,
     FileTooLarge = 0xFFFFFFFFFFFFFFF2,
+    NotFound = 0xFFFFFFFFFFFFFFF1,
 }
 
 /// File open flags
@@ -319,17 +320,17 @@ impl SyscallDispatcher {
         match integration_manager.fork_process(current_pid) {
             Ok(child_pid) => {
                 // Verify child process was created successfully
-                if let Some(child_process) = process_manager.get_process(child_pid) {
+                if let Some(mut child_process) = process_manager.get_process(child_pid) {
                     // Ensure parent-child relationship is properly set
                     if child_process.parent_pid != Some(current_pid) {
                         // Fix parent-child relationship if not set correctly
                         child_process.parent_pid = Some(current_pid);
                     }
-                    
+
                     // Copy file descriptors from parent to child
                     child_process.file_descriptors = parent_process.file_descriptors.clone();
                     child_process.file_offsets = parent_process.file_offsets.clone();
-                    
+
                     // Copy signal handlers from parent to child
                     child_process.signal_handlers = parent_process.signal_handlers.clone();
                     
@@ -663,7 +664,7 @@ impl SyscallDispatcher {
         match vfs.open(&path, open_flags, mode) {
             Ok(inode) => {
                 // Allocate file descriptor
-                if let Some(process) = process_manager.get_process(current_pid) {
+                if let Some(mut process) = process_manager.get_process(current_pid) {
                     let mut next_fd = 3; // Start after stdin/stdout/stderr
                     while process.file_descriptors.contains_key(&next_fd) {
                         next_fd += 1;
@@ -685,7 +686,7 @@ impl SyscallDispatcher {
         let fd = args.get(0).copied().unwrap_or(0) as u32;
 
         // Get process and close file descriptor
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             if process.file_descriptors.remove(&fd).is_some() {
                 SyscallResult::Success(0)
             } else {
@@ -720,14 +721,10 @@ impl SyscallDispatcher {
             }
 
             // Handle regular files
-            if let Some(inode) = process.file_descriptors.get(&fd) {
+            if let Some(file_desc) = process.file_descriptors.get_mut(&fd) {
                 let mut buffer = vec![0u8; count];
-                match inode.read(process.file_offsets.get(&fd).copied().unwrap_or(0), &mut buffer) {
+                match file_desc.read(&mut buffer) {
                     Ok(bytes_read) => {
-                        // Update file offset
-                        let new_offset = process.file_offsets.get(&fd).copied().unwrap_or(0) + bytes_read;
-                        process.file_offsets.insert(fd, new_offset);
-
                         // Copy to user buffer
                         if self.copy_to_user(buffer_ptr, &buffer[..bytes_read]).is_ok() {
                             SyscallResult::Success(bytes_read as u64)
@@ -768,18 +765,15 @@ impl SyscallDispatcher {
             }
 
             // Handle regular files
-            if let Some(inode) = process.file_descriptors.get(&fd) {
+            if let Some(file_desc) = process.file_descriptors.get_mut(&fd) {
                 // Copy from user buffer
                 let mut buffer = vec![0u8; count];
                 if self.copy_from_user(buffer_ptr, &mut buffer).is_err() {
                     return SyscallResult::Error(SyscallError::InvalidAddress);
                 }
 
-                match inode.write(process.file_offsets.get(&fd).copied().unwrap_or(0), &buffer) {
+                match file_desc.write(&buffer) {
                     Ok(bytes_written) => {
-                        // Update file offset
-                        let new_offset = process.file_offsets.get(&fd).copied().unwrap_or(0) + bytes_written;
-                        process.file_offsets.insert(fd, new_offset);
                         SyscallResult::Success(bytes_written as u64)
                     },
                     Err(_) => SyscallResult::Error(SyscallError::IoError),
@@ -798,7 +792,7 @@ impl SyscallDispatcher {
         let offset = args.get(1).copied().unwrap_or(0) as i64;
         let whence = args.get(2).copied().unwrap_or(0) as u32;
 
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             if let Some(file_desc) = process.file_descriptors.get(&fd) {
                 // Get file size from the inode if this is a VFS file
                 let file_size = match file_desc.inode() {
@@ -979,7 +973,7 @@ impl SyscallDispatcher {
         let new_brk = args.get(0).copied().unwrap_or(0);
 
         // Get current process
-        let process = match process_manager.get_process(current_pid) {
+        let mut process = match process_manager.get_process(current_pid) {
             Some(pcb) => pcb,
             None => return SyscallResult::Error(SyscallError::ProcessNotFound),
         };
@@ -1099,7 +1093,7 @@ impl SyscallDispatcher {
         let handler = args.get(1).copied().unwrap_or(0);
 
         // Get process and set signal handler
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Validate signal number (1-31 are standard signals)
             if signal == 0 || signal > 31 {
                 return SyscallResult::Error(SyscallError::InvalidArgument);
@@ -1130,7 +1124,7 @@ impl SyscallDispatcher {
             }
         } else if signal == 15 { // SIGTERM
             // Request process termination
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 // Check if process has a signal handler for SIGTERM
                 if let Some(&handler) = target.signal_handlers.get(&15) {
                     // Queue signal for delivery

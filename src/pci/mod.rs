@@ -160,14 +160,17 @@ pub struct PciDevice {
     pub vendor_id: u16,
     pub device_id: u16,
     pub class_code: PciClass,
+    pub class: u8,
     pub subclass: u8,
     pub prog_if: u8,
     pub revision_id: u8,
+    pub revision: u8,
     pub header_type: u8,
     pub subsystem_vendor_id: u16,
     pub subsystem_id: u16,
     pub capabilities: PciCapabilities,
     pub bars: [u32; 6],
+    pub name: alloc::string::String,
 }
 
 impl PciDevice {
@@ -180,14 +183,17 @@ impl PciDevice {
             vendor_id: 0,
             device_id: 0,
             class_code: PciClass::Unclassified,
+            class: 0,
             subclass: 0,
             prog_if: 0,
             revision_id: 0,
+            revision: 0,
             header_type: 0,
             subsystem_vendor_id: 0,
             subsystem_id: 0,
             capabilities: PciCapabilities::default(),
             bars: [0; 6],
+            name: alloc::string::String::from("Unknown Device"),
         }
     }
 

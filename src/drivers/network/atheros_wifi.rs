@@ -346,7 +346,7 @@ impl super::NetworkDriver for AtherosWifiDriverWrapper {
     }
 
     fn get_mac_address(&self) -> crate::net::MacAddress {
-        crate::net::MacAddress::new(self.inner.mac_address())
+        self.inner.mac_address()
     }
 
     fn state(&self) -> super::DeviceState {

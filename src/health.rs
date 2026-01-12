@@ -69,6 +69,17 @@ impl HealthStatus {
             _ => HealthStatus::Critical,
         }
     }
+
+    /// Get the numeric health score (0.0 to 1.0)
+    pub fn overall_health(&self) -> f32 {
+        match self {
+            HealthStatus::Excellent => 0.95,
+            HealthStatus::Good => 0.80,
+            HealthStatus::Fair => 0.60,
+            HealthStatus::Poor => 0.40,
+            HealthStatus::Critical => 0.20,
+        }
+    }
 }
 
 /// System component health tracking

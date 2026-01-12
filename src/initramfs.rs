@@ -263,6 +263,7 @@ pub enum InitramfsError {
     ExtractionFailed,
     InitNotFound,
     VfsError,
+    ParseError,
 }
 
 /// CPIO header structure (newc format)

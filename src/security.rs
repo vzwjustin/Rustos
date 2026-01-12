@@ -664,11 +664,12 @@ pub enum HashType {
 pub struct Hash {
     pub algorithm: HashType,
     pub digest: Vec<u8>,
+    pub bytes: Vec<u8>,
 }
 
 impl Hash {
     pub fn new(algorithm: HashType, digest: Vec<u8>) -> Self {
-        Self { algorithm, digest }
+        Self { algorithm, bytes: digest.clone(), digest }
     }
 
     /// Get hash as hex string
@@ -924,15 +925,17 @@ fn is_rdrand_supported() -> bool {
             let mut ebx = 0u32;
             let mut ecx = 0u32;
             let mut edx = 0u32;
-            
+
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = inout(reg) ebx,
                 inout("eax") eax,
-                inout("ebx") ebx,
                 inout("ecx") ecx,
                 inout("edx") edx,
             );
-            
+
             // RDRAND support is indicated by ECX bit 30
             (ecx & (1 << 30)) != 0
         }
@@ -999,15 +1002,17 @@ fn is_rdseed_supported() -> bool {
             let mut ebx = 0u32;
             let mut ecx = 0u32;
             let mut edx = 0u32;
-            
+
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = inout(reg) ebx,
                 inout("eax") eax,
-                inout("ebx") ebx,
                 inout("ecx") ecx,
                 inout("edx") edx,
             );
-            
+
             // RDSEED support is indicated by EBX bit 18
             (ebx & (1 << 18)) != 0
         }

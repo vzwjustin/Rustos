@@ -92,6 +92,7 @@ pub struct InterruptStats {
     pub exception_count: u64,
     pub page_fault_count: u64,
     pub spurious_count: u64,
+    pub missed_interrupts: u64,
 }
 
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -104,6 +105,7 @@ static SERIAL_COUNT: AtomicU64 = AtomicU64::new(0);
 static EXCEPTION_COUNT: AtomicU64 = AtomicU64::new(0);
 static PAGE_FAULT_COUNT: AtomicU64 = AtomicU64::new(0);
 static SPURIOUS_COUNT: AtomicU64 = AtomicU64::new(0);
+static MISSED_INTERRUPTS: AtomicU64 = AtomicU64::new(0);
 
 /// Initialize the interrupt system
 pub fn init() {
@@ -207,6 +209,7 @@ pub fn get_stats() -> InterruptStats {
         exception_count: EXCEPTION_COUNT.load(Ordering::Relaxed),
         page_fault_count: PAGE_FAULT_COUNT.load(Ordering::Relaxed),
         spurious_count: SPURIOUS_COUNT.load(Ordering::Relaxed),
+        missed_interrupts: MISSED_INTERRUPTS.load(Ordering::Relaxed),
     }
 }
 

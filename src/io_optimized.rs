@@ -50,6 +50,8 @@ pub enum IoCompletionStatus {
 pub struct IoRequest {
     /// Unique request ID
     pub request_id: u64,
+    /// Request ID (alias)
+    pub id: u64,
     /// Type of I/O operation
     pub request_type: IoRequestType,
     /// Priority level
@@ -58,6 +60,14 @@ pub struct IoRequest {
     pub target: u32,
     /// Data buffer offset
     pub offset: u64,
+    /// Data buffer
+    pub buffer: Option<u64>,
+    /// Buffer size
+    pub size: usize,
+    /// Device ID
+    pub device_id: u32,
+    /// Waker for async operations
+    pub waker: Option<u64>,
     /// Completion status
     pub completion_status: IoCompletionStatus,
 }
@@ -148,6 +158,14 @@ pub struct NetworkPacket {
     pub packet_type: PacketType,
     /// Packet data (simplified - just size for now)
     pub data_len: usize,
+    /// Packet data buffer
+    pub data: [u8; 1536],
+    /// Packet length
+    pub length: usize,
+    /// Timestamp
+    pub timestamp: u64,
+    /// Padding
+    pub _padding: [u8; 0],
 }
 
 /// Network packet processor for optimized network I/O

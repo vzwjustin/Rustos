@@ -137,7 +137,7 @@ impl DhcpPacket {
     /// Create new DHCP packet
     pub fn new(operation: DhcpOperation, transaction_id: u32, client_mac: MacAddress) -> Self {
         let mut client_hw = [0u8; 16];
-        client_hw[..6].copy_from_slice(&client_mac.0);
+        client_hw[..6].copy_from_slice(&client_mac);
 
         Self {
             operation,
@@ -147,10 +147,10 @@ impl DhcpPacket {
             transaction_id,
             seconds: 0,
             flags: 0,
-            client_ip: Ipv4Address::new(0, 0, 0, 0),
-            your_ip: Ipv4Address::new(0, 0, 0, 0),
-            server_ip: Ipv4Address::new(0, 0, 0, 0),
-            gateway_ip: Ipv4Address::new(0, 0, 0, 0),
+            client_ip: [0, 0, 0, 0],
+            your_ip: [0, 0, 0, 0],
+            server_ip: [0, 0, 0, 0],
+            gateway_ip: [0, 0, 0, 0],
             client_hardware_address: client_hw,
             server_name: [0; 64],
             boot_filename: [0; 128],
@@ -206,10 +206,10 @@ impl DhcpPacket {
         bytes[8..10].copy_from_slice(&self.seconds.to_be_bytes());
         bytes[10..12].copy_from_slice(&self.flags.to_be_bytes());
 
-        bytes[12..16].copy_from_slice(&self.client_ip.to_bytes());
-        bytes[16..20].copy_from_slice(&self.your_ip.to_bytes());
-        bytes[20..24].copy_from_slice(&self.server_ip.to_bytes());
-        bytes[24..28].copy_from_slice(&self.gateway_ip.to_bytes());
+        bytes[12..16].copy_from_slice(&self.client_ip);
+        bytes[16..20].copy_from_slice(&self.your_ip);
+        bytes[20..24].copy_from_slice(&self.server_ip);
+        bytes[24..28].copy_from_slice(&self.gateway_ip);
 
         bytes[28..44].copy_from_slice(&self.client_hardware_address);
         bytes[44..108].copy_from_slice(&self.server_name);
@@ -234,10 +234,10 @@ impl DhcpPacket {
         let seconds = u16::from_be_bytes([data[8], data[9]]);
         let flags = u16::from_be_bytes([data[10], data[11]]);
 
-        let client_ip = Ipv4Address::from_bytes([data[12], data[13], data[14], data[15]]);
-        let your_ip = Ipv4Address::from_bytes([data[16], data[17], data[18], data[19]]);
-        let server_ip = Ipv4Address::from_bytes([data[20], data[21], data[22], data[23]]);
-        let gateway_ip = Ipv4Address::from_bytes([data[24], data[25], data[26], data[27]]);
+        let client_ip = [data[12], data[13], data[14], data[15]];
+        let your_ip = [data[16], data[17], data[18], data[19]];
+        let server_ip = [data[20], data[21], data[22], data[23]];
+        let gateway_ip = [data[24], data[25], data[26], data[27]];
 
         let mut client_hardware_address = [0u8; 16];
         client_hardware_address.copy_from_slice(&data[28..44]);
@@ -383,9 +383,9 @@ impl DhcpClient {
 
         self.lease = Some(DhcpLease {
             ip_address: ack.your_ip,
-            subnet_mask: Ipv4Address::new(255, 255, 255, 0), // Default
+            subnet_mask: [255, 255, 255, 0], // Default
             gateway: ack.gateway_ip,
-            dns_servers: [Ipv4Address::new(8, 8, 8, 8), Ipv4Address::new(8, 8, 4, 4)],
+            dns_servers: [[8, 8, 8, 8], [8, 8, 4, 4]],
             lease_time,
             renewal_time,
             rebinding_time,

@@ -223,7 +223,7 @@ pub struct GPUMemoryManager {
     pub dma_buffers: Vec<DMABuffer>,
     pub free_blocks: BTreeMap<usize, Vec<u64>>, // Size -> list of addresses
     pub bandwidth_optimization: BandwidthOptimization,
-    pub memory_stats: GPUMemoryStats,
+    pub stats: GPUMemoryStats,
     pub next_allocation_id: u32,
     pub next_dma_id: u32,
     pub fragmentation_threshold: f32,
@@ -267,7 +267,7 @@ impl GPUMemoryManager {
             dma_buffers: Vec::new(),
             free_blocks,
             bandwidth_optimization,
-            memory_stats: GPUMemoryStats::new(),
+            stats: GPUMemoryStats::new(),
             next_allocation_id: 1,
             next_dma_id: 1,
             fragmentation_threshold: 0.3, // 30% fragmentation threshold
@@ -766,7 +766,7 @@ impl GPUMemoryManager {
         // Track allocation in GPU memory manager
         self.track_allocation(alloc_info)?;
         
-        self.memory_stats.total_allocations.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.stats.total_allocations.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         
         NonNull::new(virt_addr as *mut u8).ok_or("Invalid virtual address")
     }
@@ -1032,7 +1032,7 @@ impl GPUMemoryManager {
         // - Platform-specific GPU memory APIs
         
         // For now, validate the operation completed
-        self.memory_stats.total_transfers.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.stats.total_transfers.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

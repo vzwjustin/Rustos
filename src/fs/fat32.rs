@@ -463,7 +463,13 @@ impl Fat32FileSystem {
                     
                     for lfn in &lfn_entries {
                         // Extract characters from LFN entry
-                        for &ch in &lfn.name1 {
+                        // SAFETY: lfn is a packed struct representing FAT32 on-disk format.
+                        // We use addr_of! to avoid creating misaligned references.
+                        let name1 = unsafe { core::ptr::addr_of!(lfn.name1).read_unaligned() };
+                        let name2 = unsafe { core::ptr::addr_of!(lfn.name2).read_unaligned() };
+                        let name3 = unsafe { core::ptr::addr_of!(lfn.name3).read_unaligned() };
+
+                        for &ch in &name1 {
                             if ch == 0 || ch == 0xFFFF {
                                 break;
                             }
@@ -471,7 +477,7 @@ impl Fat32FileSystem {
                                 long_name.push(c);
                             }
                         }
-                        for &ch in &lfn.name2 {
+                        for &ch in &name2 {
                             if ch == 0 || ch == 0xFFFF {
                                 break;
                             }
@@ -479,7 +485,7 @@ impl Fat32FileSystem {
                                 long_name.push(c);
                             }
                         }
-                        for &ch in &lfn.name3 {
+                        for &ch in &name3 {
                             if ch == 0 || ch == 0xFFFF {
                                 break;
                             }

@@ -181,6 +181,14 @@ pub struct ProcessControlBlock {
     pub creation_time: u64,
     /// Exit status (valid only when state is Zombie)
     pub exit_status: Option<i32>,
+    /// Exit code (alias for exit_status)
+    pub exit_code: Option<i32>,
+    /// User ID
+    pub uid: u32,
+    /// Group ID
+    pub gid: u32,
+    /// Current working directory
+    pub cwd: alloc::string::String,
     /// File descriptor table
     pub fd_table: BTreeMap<u32, FileDescriptor>,
     /// Next file descriptor number
@@ -342,6 +350,10 @@ impl ProcessControlBlock {
             cpu_time: 0,
             creation_time: get_system_time(),
             exit_status: None,
+            exit_code: None,
+            uid: 0,
+            gid: 0,
+            cwd: alloc::string::String::from("/"),
             fd_table: fd_table.clone(),
             next_fd: 3, // 0, 1, 2 reserved for stdin, stdout, stderr
             sched_info: SchedulingInfo {

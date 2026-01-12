@@ -592,7 +592,7 @@ fn measure_current_performance() -> BTreeMap<String, f64> {
         let manager = memory_manager;
         let frame = manager.allocate_frame_in_zone(MemoryZone::Normal);
         if let Some(f) = frame {
-            manager.deallocate_frame(f);
+            manager.deallocate_frame(f, MemoryZone::Normal);
         }
     }
     let mem_end = crate::performance_monitor::read_tsc();

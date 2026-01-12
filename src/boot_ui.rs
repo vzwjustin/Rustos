@@ -393,9 +393,11 @@ fn detect_cpu_info() -> CpuInfo {
             let mut vendor_b: u32;
             let mut vendor_c: u32;
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = out(reg) vendor_a,
                 in("eax") 0u32,
-                out("ebx") vendor_a,
                 out("ecx") vendor_c,
                 out("edx") vendor_b,
                 options(nostack, preserves_flags)
@@ -416,11 +418,13 @@ fn detect_cpu_info() -> CpuInfo {
             let features_ecx: u32;
             let features_edx: u32;
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "mov ebx, {tmp:e}",
+                tmp = out(reg) _,
                 in("eax") 1u32,
                 out("ecx") features_ecx,
                 out("edx") features_edx,
-                out("ebx") _,
                 options(nostack, preserves_flags)
             );
 

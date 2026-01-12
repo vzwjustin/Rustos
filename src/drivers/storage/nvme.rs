@@ -477,7 +477,7 @@ impl NvmeDriver {
     }
 
     /// Write to register with u32 offset (for doorbells)
-    fn write_reg(&self, offset: u32, value: u32) {
+    fn write_reg_raw(&self, offset: u32, value: u32) {
         unsafe {
             ptr::write_volatile((self.base_addr + offset as u64) as *mut u32, value);
         }
@@ -677,7 +677,7 @@ impl NvmeDriver {
         
         // 3. Ring submission queue doorbell
         let doorbell_offset = 0x1000 + (0 * 2 * (4 << self.doorbell_stride)); // Queue 0 submission doorbell
-        self.write_reg(doorbell_offset as u32, self.current_sq_tail as u32);
+        self.write_reg_raw(doorbell_offset as u32, self.current_sq_tail as u32);
         
         // 4. Wait for completion queue entry
         let mut timeout = 1000000; // Timeout counter
@@ -714,7 +714,7 @@ impl NvmeDriver {
         
         // 5. Ring completion queue doorbell
         let cq_doorbell_offset = 0x1000 + (0 * 2 + 1) * (4 << self.doorbell_stride); // Queue 0 completion doorbell
-        self.write_reg(cq_doorbell_offset as u32, self.current_cq_head as u32);
+        self.write_reg_raw(cq_doorbell_offset as u32, self.current_cq_head as u32);
         
         // Update statistics
         match opcode {

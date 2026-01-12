@@ -134,7 +134,7 @@ impl RealtekDriver {
             stats: EnhancedNetworkStats::default(),
             base_addr,
             irq,
-            mac_address: MacAddress::ZERO,
+            mac_address: [0, 0, 0, 0, 0, 0],
             current_speed: 0,
             full_duplex: false,
             tx_desc_index: None,
@@ -250,7 +250,7 @@ impl RealtekDriver {
                     (mac_high & 0xFF) as u8,
                     ((mac_high >> 8) & 0xFF) as u8,
                 ];
-                self.mac_address = MacAddress::new(mac_bytes);
+                self.mac_address = mac_bytes;
             }
             _ => {
                 // For RTL8169/8168, MAC is at different offset

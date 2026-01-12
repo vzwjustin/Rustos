@@ -257,9 +257,11 @@ pub fn is_supported() -> bool {
     unsafe {
         asm!(
             "mov eax, 0x80000001",
+            "mov {tmp:e}, ebx",
             "cpuid",
+            "mov ebx, {tmp:e}",
+            tmp = out(reg) ebx,
             out("eax") eax,
-            out("ebx") ebx,
             out("ecx") ecx,
             out("edx") edx,
             options(nostack, preserves_flags)

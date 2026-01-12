@@ -2330,6 +2330,7 @@ pub enum MemoryError {
     InvalidOrder,
     BuddyAllocationFailed,
     FragmentationLimitExceeded,
+    PermissionDenied,
 }
 
 impl fmt::Display for MemoryError {
@@ -2351,6 +2352,7 @@ impl fmt::Display for MemoryError {
             MemoryError::InvalidOrder => write!(f, "Invalid buddy allocator order"),
             MemoryError::BuddyAllocationFailed => write!(f, "Buddy allocation failed"),
             MemoryError::FragmentationLimitExceeded => write!(f, "Memory fragmentation limit exceeded"),
+            MemoryError::PermissionDenied => write!(f, "Permission denied"),
         }
     }
 }

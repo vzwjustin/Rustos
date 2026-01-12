@@ -524,7 +524,7 @@ impl IntelE1000Driver {
             self.mac_address = mac_bytes;
         } else {
             // Generate a default MAC address with Intel OUI
-            self.mac_address = super::utils::generate_mac_with_vendor(super::utils::INTEL_OUI).as_bytes().clone();
+            self.mac_address = super::utils::generate_mac_with_vendor(super::utils::INTEL_OUI);
         }
 
         Ok(())

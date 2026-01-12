@@ -166,7 +166,7 @@ impl BroadcomDriver {
             stats: EnhancedNetworkStats::default(),
             base_addr,
             irq,
-            mac_address: MacAddress::ZERO,
+            mac_address: [0, 0, 0, 0, 0, 0],
             current_speed: 0,
             full_duplex: false,
         }
@@ -220,7 +220,7 @@ impl BroadcomDriver {
                 ((mac_low >> 8) & 0xFF) as u8,
                 (mac_low & 0xFF) as u8,
             ];
-            self.mac_address = MacAddress::new(mac_bytes);
+            self.mac_address = mac_bytes;
         } else {
             // Generate default MAC with Broadcom OUI
             self.mac_address = super::utils::generate_mac_with_vendor(super::utils::BROADCOM_OUI);
@@ -262,7 +262,7 @@ impl BroadcomDriver {
         self.write_reg(BCM_MAC_MODE, mac_mode);
 
         // Set MAC address
-        let mac_bytes = self.mac_address.as_bytes();
+        let mac_bytes = &self.mac_address;
         let mac_high = ((mac_bytes[0] as u32) << 8) | (mac_bytes[1] as u32);
         let mac_low = ((mac_bytes[2] as u32) << 24) |
                       ((mac_bytes[3] as u32) << 16) |

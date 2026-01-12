@@ -37,30 +37,57 @@ pub enum DeviceType {
 pub struct DeviceCapabilities {
     /// Maximum transmission unit
     pub max_mtu: u16,
+    /// Minimum transmission unit
+    pub min_mtu: u16,
     /// Supports hardware checksumming
     pub hw_checksum: bool,
+    /// Supports checksum offload
+    pub supports_checksum_offload: bool,
     /// Supports scatter-gather I/O
     pub scatter_gather: bool,
     /// Supports TCP segmentation offload
     pub tso: bool,
+    /// Supports TCP segmentation offload (alias)
+    pub supports_tso: bool,
+    /// Supports large receive offload
+    pub supports_lro: bool,
     /// Supports receive side scaling
     pub rss: bool,
     /// Supports VLAN tagging
     pub vlan: bool,
+    /// Supports VLAN tagging (alias)
+    pub supports_vlan: bool,
     /// Supports jumbo frames
     pub jumbo_frames: bool,
+    /// Supports jumbo frames (alias)
+    pub supports_jumbo_frames: bool,
+    /// Supports multicast filtering
+    pub multicast_filter: bool,
+    /// Maximum transmit queues
+    pub max_tx_queues: u16,
+    /// Maximum receive queues
+    pub max_rx_queues: u16,
 }
 
 impl Default for DeviceCapabilities {
     fn default() -> Self {
         Self {
             max_mtu: 1500,
+            min_mtu: 68,
             hw_checksum: false,
+            supports_checksum_offload: false,
             scatter_gather: false,
             tso: false,
+            supports_tso: false,
+            supports_lro: false,
             rss: false,
             vlan: false,
+            supports_vlan: false,
             jumbo_frames: false,
+            supports_jumbo_frames: false,
+            multicast_filter: false,
+            max_tx_queues: 1,
+            max_rx_queues: 1,
         }
     }
 }

@@ -172,6 +172,13 @@ pub struct NetworkStats {
     pub tx_errors: u64,
     pub rx_dropped: u64,
     pub tx_dropped: u64,
+    pub packets_sent: u64,
+    pub packets_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub send_errors: u64,
+    pub receive_errors: u64,
+    pub dropped_packets: u64,
 }
 
 /// Dummy Ethernet driver for testing
@@ -529,7 +536,7 @@ pub fn init_network_drivers() -> Result<NetworkDriverManager, NetworkError> {
     // For now, create a dummy driver for testing
     let dummy_driver = DummyEthernetDriver::new(
         "Generic Ethernet".to_string(),
-        MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]),
+        [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
     );
 
     let caps = ExtendedNetworkCapabilities {
@@ -565,7 +572,7 @@ pub mod utils {
     /// Validate MAC address
     pub fn is_valid_mac_address(mac: &MacAddress) -> bool {
         // Check for invalid addresses
-        let bytes = mac.as_bytes();
+        let bytes = mac;
 
         // All zeros
         if bytes.iter().all(|&b| b == 0) {
@@ -597,7 +604,7 @@ pub mod utils {
         mac[4] = 0x34;
         mac[5] = 0x56;
 
-        MacAddress::new(mac)
+        mac
     }
 
     /// Common vendor prefixes

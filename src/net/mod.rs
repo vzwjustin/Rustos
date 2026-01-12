@@ -230,6 +230,10 @@ pub enum NetworkError {
     NotConnected,
     /// Not implemented
     NotImplemented,
+    /// Internal error
+    InternalError,
+    /// Resource not found
+    NotFound,
 }
 
 impl fmt::Display for NetworkError {
@@ -257,6 +261,8 @@ impl fmt::Display for NetworkError {
             NetworkError::ProtocolError => write!(f, "Protocol error"),
             NetworkError::NotConnected => write!(f, "Not connected"),
             NetworkError::NotImplemented => write!(f, "Not implemented"),
+            NetworkError::InternalError => write!(f, "Internal error"),
+            NetworkError::NotFound => write!(f, "Resource not found"),
         }
     }
 }
