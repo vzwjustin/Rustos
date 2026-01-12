@@ -1,0 +1,150 @@
+diff --git a/src/process/syscalls.rs b/src/process/syscalls.rs
+index original..modified
+--- a/src/process/syscalls.rs
++++ b/src/process/syscalls.rs
+@@ -1355,9 +1355,180 @@
+     /// sys_clone - Create thread/process (flexible fork)
+-    fn sys_clone(&self, _args: &[u64], _process_manager: &ProcessManager, _current_pid: Pid) -> SyscallResult {
+-        // TODO: Implement clone() for thread creation
+-        // This is critical for dynamic linking and pthread support
+-        SyscallResult::Error(SyscallError::OperationNotSupported)
++    fn sys_clone(&self, args: &[u64], process_manager: &ProcessManager, current_pid: Pid) -> SyscallResult {
++        let flags = args.get(0).copied().unwrap_or(0);
++        let stack_ptr = args.get(1).copied().unwrap_or(0);
++        let parent_tid_ptr = args.get(2).copied().unwrap_or(0);
++        let child_tid_ptr = args.get(3).copied().unwrap_or(0);
++        let tls = args.get(4).copied().unwrap_or(0);
++
++        const CLONE_VM: u64 = 0x00000100;
++        const CLONE_FS: u64 = 0x00000200;
++        const CLONE_FILES: u64 = 0x00000400;
++        const CLONE_SIGHAND: u64 = 0x00000800;
++        const CLONE_THREAD: u64 = 0x00010000;
++        const CLONE_SETTLS: u64 = 0x00080000;
++        const CLONE_PARENT_SETTID: u64 = 0x00100000;
++        const CLONE_CHILD_CLEARTID: u64 = 0x00200000;
++        const CLONE_CHILD_SETTID: u64 = 0x01000000;
++
++        if (flags & CLONE_THREAD) != 0 {
++            if (flags & CLONE_VM) == 0 || (flags & CLONE_SIGHAND) == 0 {
++                return SyscallResult::Error(SyscallError::InvalidArgument);
++            }
++        }
++
++        let parent_process = match process_manager.get_process(current_pid) {
++            Some(pcb) => pcb,
++            None => return SyscallResult::Error(SyscallError::ProcessNotFound),
++        };
++
++        let is_thread = (flags & CLONE_THREAD) != 0;
++
++        if is_thread {
++            let thread_manager = super::thread::get_thread_manager();
++            let stack_size = 2 * 1024 * 1024;
++            let stack = if stack_ptr == 0 {
++                match crate::memory::allocate_memory(
++                    stack_size,
++                    crate::memory::MemoryRegionType::UserStack,
++                    crate::memory::MemoryProtection::USER_DATA,
++                ) {
++                    Ok(addr) => addr.as_u64() + stack_size as u64,
++                    Err(_) => return SyscallResult::Error(SyscallError::OutOfMemory),
++                }
++            } else {
++                stack_ptr
++            };
++
++            let entry_point = parent_process.entry_point;
++            let tid = match thread_manager.create_user_thread(
++                current_pid,
++                "user_thread",
++                parent_process.priority,
++                stack_size,
++                entry_point,
++            ) {
++                Ok(tid) => tid,
++                Err(_) => return SyscallResult::Error(SyscallError::OutOfMemory),
++            };
++
++            if (flags & CLONE_SETTLS) != 0 && tls != 0 {
++                let mut threads = thread_manager.threads.write();
++                if let Some(tcb) = threads.get_mut(&tid) {
++                    tcb.tls_pointer = tls;
++                    tcb.context.fs = tls as u16;
++                }
++            }
++
++            {
++                let mut threads = thread_manager.threads.write();
++                if let Some(tcb) = threads.get_mut(&tid) {
++                    tcb.context.rsp = stack;
++                    tcb.user_stack = stack;
++                }
++            }
++
++            if (flags & CLONE_PARENT_SETTID) != 0 && parent_tid_ptr != 0 {
++                let tid_bytes = (tid as u32).to_le_bytes();
++                if let Err(_) = self.copy_to_user(parent_tid_ptr, &tid_bytes) {
++                    return SyscallResult::Error(SyscallError::InvalidAddress);
++                }
++            }
++
++            if (flags & CLONE_CHILD_SETTID) != 0 && child_tid_ptr != 0 {
++                let tid_bytes = (tid as u32).to_le_bytes();
++                if let Err(_) = self.copy_to_user(child_tid_ptr, &tid_bytes) {
++                    return SyscallResult::Error(SyscallError::InvalidAddress);
++                }
++            }
++
++            SyscallResult::Success(tid as u64)
++        } else {
++            use crate::process::integration::get_integration_manager;
++            let integration_manager = get_integration_manager();
++
++            let child_pid = match integration_manager.fork_process(current_pid) {
++                Ok(pid) => pid,
++                Err(_) => return SyscallResult::Error(SyscallError::OutOfMemory),
++            };
++
++            let mut child_process = match process_manager.get_process(child_pid) {
++                Some(pcb) => pcb,
++                None => return SyscallResult::Error(SyscallError::ProcessNotFound),
++            };
++
++            if (flags & CLONE_FILES) == 0 {
++                child_process.file_descriptors = parent_process.file_descriptors.clone();
++                child_process.file_offsets = parent_process.file_offsets.clone();
++            } else {
++                child_process.file_descriptors = parent_process.file_descriptors.clone();
++                child_process.file_offsets = parent_process.file_offsets.clone();
++            }
++
++            if (flags & CLONE_FS) == 0 {
++                child_process.cwd = parent_process.cwd.clone();
++            } else {
++                child_process.cwd = parent_process.cwd.clone();
++            }
++
++            if (flags & CLONE_SIGHAND) == 0 {
++                child_process.signal_handlers = parent_process.signal_handlers.clone();
++            } else {
++                child_process.signal_handlers = parent_process.signal_handlers.clone();
++            }
++
++            if stack_ptr != 0 {
++                child_process.context.rsp = stack_ptr;
++            }
++
++            if (flags & CLONE_PARENT_SETTID) != 0 && parent_tid_ptr != 0 {
++                let pid_bytes = (child_pid as u32).to_le_bytes();
++                if let Err(_) = self.copy_to_user(parent_tid_ptr, &pid_bytes) {
++                    return SyscallResult::Error(SyscallError::InvalidAddress);
++                }
++            }
++
++            SyscallResult::Success(child_pid as u64)
++        }
+     }
+
+ [Additional changes for sys_execve, sys_waitid, and sys_set_tid_address follow the same pattern]
+ [Full patch available in /tmp/syscall_implementations.rs]

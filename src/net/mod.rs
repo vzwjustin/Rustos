@@ -765,6 +765,17 @@ impl NetworkStack {
         sockets.get(&socket_id).cloned()
     }
 
+    /// Update socket by ID
+    pub fn update_socket(&self, socket_id: u32, socket: socket::Socket) -> NetworkResult<()> {
+        let mut sockets = self.sockets.write();
+        if sockets.contains_key(&socket_id) {
+            sockets.insert(socket_id, socket);
+            Ok(())
+        } else {
+            Err(NetworkError::NotFound)
+        }
+    }
+
     /// Process incoming packet
     pub fn process_packet(&self, interface_name: &str, packet: PacketBuffer) -> NetworkResult<()> {
         // Update interface statistics

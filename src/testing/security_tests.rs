@@ -79,24 +79,252 @@ pub fn create_security_test_suite() -> TestSuite {
 // Setup and teardown functions
 fn setup_all_security_tests() {
     // Initialize security testing environment
+
+    // Enable security monitoring for all tests
+    if let Some(_sec_mgr) = crate::security::get_security_manager() {
+        // Security manager is available
+    }
+
+    // Initialize audit logging for security events
+    crate::security::enable_audit_logging();
+
+    // Set test mode to allow controlled security violations
+    crate::security::set_test_mode(true);
+
+    // Clear any previous security violation records
+    crate::security::clear_violation_log();
 }
 
 fn teardown_all_security_tests() {
     // Clean up security testing environment
+
+    // Disable test mode to restore normal security enforcement
+    crate::security::set_test_mode(false);
+
+    // Disable audit logging
+    crate::security::disable_audit_logging();
+
+    // Verify no unexpected security violations occurred
+    let violations = crate::security::get_violation_count();
+    if violations > 0 {
+        crate::println!("[WARNING] {} security violations detected during testing", violations);
+    }
+
+    // Reset security state
+    crate::security::reset_security_state();
 }
 
-fn setup_security_tests() {}
-fn teardown_security_tests() {}
-fn setup_memory_security_tests() {}
-fn teardown_memory_security_tests() {}
-fn setup_syscall_security_tests() {}
-fn teardown_syscall_security_tests() {}
-fn setup_buffer_security_tests() {}
-fn teardown_buffer_security_tests() {}
-fn setup_access_control_tests() {}
-fn teardown_access_control_tests() {}
-fn setup_crypto_security_tests() {}
-fn teardown_crypto_security_tests() {}
+fn setup_security_tests() {
+    // Initialize privilege escalation test environment
+
+    // Create test process context with user privileges
+    crate::process::set_test_context(3); // CPL 3 = user mode
+
+    // Enable privilege level monitoring
+    crate::security::enable_privilege_monitoring();
+
+    // Clear any cached permission checks
+    crate::security::clear_permission_cache();
+}
+
+fn teardown_security_tests() {
+    // Clean up privilege escalation test environment
+
+    // Restore kernel privilege level
+    crate::process::set_test_context(0); // CPL 0 = kernel mode
+
+    // Disable privilege level monitoring
+    crate::security::disable_privilege_monitoring();
+
+    // Verify no privilege leaks
+    crate::security::verify_privilege_integrity();
+}
+
+fn setup_memory_security_tests() {
+    // Initialize memory protection test environment
+
+    // Enable memory access violation tracking
+    crate::memory::enable_access_violation_tracking();
+
+    // Set up page fault handler for testing
+    crate::memory::set_test_page_fault_handler();
+
+    // Clear any cached memory protection state
+    crate::memory::clear_tlb_cache();
+
+    // Record baseline memory statistics
+    let (used, total) = crate::memory::get_memory_usage();
+    crate::memory::set_test_baseline_memory(used, total);
+}
+
+fn teardown_memory_security_tests() {
+    // Clean up memory protection test environment
+
+    // Disable memory access violation tracking
+    crate::memory::disable_access_violation_tracking();
+
+    // Restore normal page fault handler
+    crate::memory::restore_page_fault_handler();
+
+    // Check for memory leaks
+    let (current_used, _) = crate::memory::get_memory_usage();
+    let (baseline_used, _) = crate::memory::get_test_baseline_memory();
+
+    if current_used > baseline_used + 4096 { // Allow 1 page tolerance
+        crate::println!("[WARNING] Possible memory leak: {} bytes", current_used - baseline_used);
+    }
+
+    // Flush TLB to ensure clean state
+    crate::memory::clear_tlb_cache();
+}
+
+fn setup_syscall_security_tests() {
+    // Initialize system call security test environment
+
+    // Enable syscall parameter validation tracking
+    crate::syscall::enable_parameter_validation_logging();
+
+    // Set strict validation mode for testing
+    crate::syscall::set_strict_validation_mode(true);
+
+    // Clear syscall statistics
+    crate::syscall::clear_syscall_stats();
+
+    // Enable syscall timing for performance monitoring
+    crate::syscall::enable_syscall_timing();
+}
+
+fn teardown_syscall_security_tests() {
+    // Clean up system call security test environment
+
+    // Disable parameter validation logging
+    crate::syscall::disable_parameter_validation_logging();
+
+    // Restore normal validation mode
+    crate::syscall::set_strict_validation_mode(false);
+
+    // Disable syscall timing
+    crate::syscall::disable_syscall_timing();
+
+    // Verify syscall handler integrity
+    let stats = crate::syscall::get_syscall_stats();
+    if stats.failed_calls > stats.total_calls {
+        crate::println!("[ERROR] Syscall statistics corrupted");
+    }
+}
+
+fn setup_buffer_security_tests() {
+    // Initialize buffer overflow protection test environment
+
+    // Enable stack canary checking
+    crate::security::enable_stack_canary_checking();
+
+    // Set up guard pages for test allocations
+    crate::memory::enable_guard_pages(true);
+
+    // Enable heap overflow detection
+    crate::memory::enable_heap_overflow_detection();
+
+    // Record initial stack pointer for validation
+    let stack_ptr = crate::process::get_stack_pointer();
+    crate::security::set_test_stack_baseline(stack_ptr);
+}
+
+fn teardown_buffer_security_tests() {
+    // Clean up buffer overflow protection test environment
+
+    // Disable stack canary checking
+    crate::security::disable_stack_canary_checking();
+
+    // Restore normal guard page behavior
+    crate::memory::enable_guard_pages(false);
+
+    // Disable heap overflow detection
+    crate::memory::disable_heap_overflow_detection();
+
+    // Verify stack integrity
+    let current_stack = crate::process::get_stack_pointer();
+    let baseline_stack = crate::security::get_test_stack_baseline();
+
+    if current_stack.abs_diff(baseline_stack) > 8192 { // Allow 8KB tolerance
+        crate::println!("[WARNING] Stack pointer deviation detected");
+    }
+}
+
+fn setup_access_control_tests() {
+    // Initialize access control test environment
+
+    // Enable access control logging
+    crate::security::enable_access_control_logging();
+
+    // Set up test user/group contexts
+    crate::process::create_test_user_context(1000, 1000); // UID 1000, GID 1000
+
+    // Clear permission caches
+    crate::fs::clear_permission_cache();
+
+    // Enable capability tracking
+    crate::security::enable_capability_tracking();
+}
+
+fn teardown_access_control_tests() {
+    // Clean up access control test environment
+
+    // Disable access control logging
+    crate::security::disable_access_control_logging();
+
+    // Remove test user/group contexts
+    crate::process::destroy_test_user_context();
+
+    // Disable capability tracking
+    crate::security::disable_capability_tracking();
+
+    // Verify no capability leaks
+    let caps = crate::security::get_active_capabilities();
+    if !caps.is_empty() {
+        crate::println!("[WARNING] Active capabilities remaining: {:?}", caps);
+    }
+}
+
+fn setup_crypto_security_tests() {
+    // Initialize cryptographic security test environment
+
+    // Initialize entropy pool for testing
+    crate::security::init_entropy_pool();
+
+    // Seed PRNG with test entropy
+    crate::security::seed_test_entropy();
+
+    // Enable cryptographic operation logging
+    crate::security::enable_crypto_logging();
+
+    // Clear key storage for testing
+    crate::security::clear_test_key_storage();
+
+    // Enable timing attack detection
+    crate::security::enable_timing_attack_detection();
+}
+
+fn teardown_crypto_security_tests() {
+    // Clean up cryptographic security test environment
+
+    // Disable cryptographic operation logging
+    crate::security::disable_crypto_logging();
+
+    // Securely wipe all test keys
+    crate::security::secure_wipe_test_keys();
+
+    // Disable timing attack detection
+    crate::security::disable_timing_attack_detection();
+
+    // Verify all key material was properly zeroized
+    if !crate::security::verify_key_cleanup() {
+        crate::println!("[ERROR] Key material not properly cleaned up");
+    }
+
+    // Reset entropy pool state
+    crate::security::reset_entropy_pool();
+}
 
 // Security test implementations
 

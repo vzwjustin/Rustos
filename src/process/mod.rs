@@ -18,6 +18,8 @@ pub mod thread;
 pub mod ipc;
 pub mod elf_loader;
 pub mod dynamic_linker;
+pub mod futex;
+pub mod userexec;
 
 /// Process ID type
 pub type Pid = u32;
@@ -268,6 +270,22 @@ impl FileDescriptor {
                 // For stdin, read from keyboard buffer
                 Ok(0)
             }
+            FileDescriptorType::Socket { socket_id } => {
+                // Read from socket
+                let network_stack = crate::net::network_stack();
+                if let Some(mut socket) = network_stack.get_socket(*socket_id) {
+                    match socket.recv(buffer) {
+                        Ok(bytes_read) => {
+                            // Update socket in network stack
+                            let _ = network_stack.update_socket(*socket_id, socket);
+                            Ok(bytes_read)
+                        }
+                        Err(_) => Err(crate::fs::FsError::IoError),
+                    }
+                } else {
+                    Err(crate::fs::FsError::BadFileDescriptor)
+                }
+            }
             _ => Err(crate::fs::FsError::BadFileDescriptor),
         }
     }
@@ -286,6 +304,22 @@ impl FileDescriptor {
                     crate::serial_print!("{}", byte as char);
                 }
                 Ok(data.len())
+            }
+            FileDescriptorType::Socket { socket_id } => {
+                // Write to socket
+                let network_stack = crate::net::network_stack();
+                if let Some(mut socket) = network_stack.get_socket(*socket_id) {
+                    match socket.send(data) {
+                        Ok(bytes_written) => {
+                            // Update socket in network stack
+                            let _ = network_stack.update_socket(*socket_id, socket);
+                            Ok(bytes_written)
+                        }
+                        Err(_) => Err(crate::fs::FsError::IoError),
+                    }
+                } else {
+                    Err(crate::fs::FsError::BadFileDescriptor)
+                }
             }
             _ => Err(crate::fs::FsError::BadFileDescriptor),
         }

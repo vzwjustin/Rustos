@@ -127,24 +127,391 @@ pub fn create_system_validation_suite(config: SystemValidationConfig) -> TestSui
 // Setup and teardown functions
 fn setup_system_validation_tests() {
     // Initialize system validation environment
+
+    // Enable comprehensive system monitoring
+    crate::health::enable_health_monitoring();
+
+    // Initialize all subsystems for validation
+    let _ = crate::memory::init_memory_manager();
+    let _ = crate::scheduler::init();
+    let _ = crate::interrupts::init();
+
+    // Enable system-wide event logging
+    crate::system::enable_event_logging();
+
+    // Clear all system statistics
+    crate::system::clear_all_statistics();
+
+    // Record system baseline state
+    crate::system::snapshot_baseline_state();
+
+    // Enable regression detection
+    crate::testing::enable_regression_detection();
+
+    // Initialize validation metrics collection
+    crate::validation::init_metrics_collection();
 }
 
 fn teardown_system_validation_tests() {
     // Clean up system validation environment
+
+    // Collect final system health status
+    let health = crate::health::get_health_status();
+    crate::println!("[VALIDATION] Final system health: {:.1}%", health.overall_health() * 100.0);
+
+    // Generate comprehensive validation report
+    crate::validation::generate_validation_report();
+
+    // Disable system-wide event logging
+    crate::system::disable_event_logging();
+
+    // Verify system integrity
+    if !crate::system::verify_integrity() {
+        crate::println!("[ERROR] System integrity check failed");
+    }
+
+    // Disable health monitoring
+    crate::health::disable_health_monitoring();
+
+    // Check for resource leaks across all subsystems
+    crate::validation::check_resource_leaks();
+
+    // Disable regression detection
+    crate::testing::disable_regression_detection();
 }
 
-fn setup_stability_tests() {}
-fn teardown_stability_tests() {}
-fn setup_memory_safety_tests() {}
-fn teardown_memory_safety_tests() {}
-fn setup_security_verification_tests() {}
-fn teardown_security_verification_tests() {}
-fn setup_compatibility_tests() {}
-fn teardown_compatibility_tests() {}
-fn setup_hardware_validation_tests() {}
-fn teardown_hardware_validation_tests() {}
-fn setup_performance_regression_tests() {}
-fn teardown_performance_regression_tests() {}
+fn setup_stability_tests() {
+    // Initialize long-term stability test environment
+
+    // Enable continuous health monitoring
+    crate::health::enable_continuous_monitoring();
+
+    // Set up watchdog timer for stability testing
+    crate::watchdog::enable();
+    crate::watchdog::set_timeout(300); // 5 minutes
+
+    // Enable memory leak detection
+    crate::memory::enable_leak_detection();
+
+    // Enable deadlock detection
+    crate::scheduler::enable_deadlock_detection();
+
+    // Clear system error logs
+    crate::system::clear_error_log();
+
+    // Record initial system state for comparison
+    let (mem_used, mem_total) = crate::memory::get_memory_usage();
+    let uptime = crate::time::uptime_us();
+    crate::validation::set_stability_baseline(mem_used, mem_total, uptime);
+
+    // Enable stress test mode
+    crate::system::enable_stress_test_mode();
+}
+
+fn teardown_stability_tests() {
+    // Clean up long-term stability test environment
+
+    // Disable stress test mode
+    crate::system::disable_stress_test_mode();
+
+    // Disable watchdog timer
+    crate::watchdog::disable();
+
+    // Disable deadlock detection
+    crate::scheduler::disable_deadlock_detection();
+
+    // Disable memory leak detection
+    crate::memory::disable_leak_detection();
+
+    // Analyze stability metrics
+    let (final_mem, _) = crate::memory::get_memory_usage();
+    let (baseline_mem, _, _) = crate::validation::get_stability_baseline();
+
+    let mem_growth = final_mem.saturating_sub(baseline_mem);
+    if mem_growth > 1024 * 1024 { // 1MB threshold
+        crate::println!("[WARNING] Memory grew by {} KB during stability test",
+                       mem_growth / 1024);
+    }
+
+    // Check error logs
+    let error_count = crate::system::get_error_count();
+    if error_count > 0 {
+        crate::println!("[WARNING] {} system errors during stability test", error_count);
+    }
+
+    // Disable continuous health monitoring
+    crate::health::disable_continuous_monitoring();
+}
+
+fn setup_memory_safety_tests() {
+    // Initialize memory safety validation environment
+
+    // Enable comprehensive memory guards
+    crate::memory::enable_all_guards();
+
+    // Enable address sanitizer features
+    crate::memory::enable_address_sanitizer();
+
+    // Enable use-after-free detection
+    crate::memory::enable_uaf_detection();
+
+    // Enable double-free detection
+    crate::memory::enable_double_free_detection();
+
+    // Set up memory quarantine for freed objects
+    crate::memory::enable_memory_quarantine();
+
+    // Record baseline memory state
+    let allocator_stats = crate::memory::get_allocator_stats();
+    crate::validation::set_memory_safety_baseline(allocator_stats);
+
+    // Enable memory access violation tracking
+    crate::memory::enable_access_violation_tracking();
+}
+
+fn teardown_memory_safety_tests() {
+    // Clean up memory safety validation environment
+
+    // Disable memory access violation tracking
+    crate::memory::disable_access_violation_tracking();
+
+    // Disable memory quarantine
+    crate::memory::disable_memory_quarantine();
+
+    // Disable double-free detection
+    crate::memory::disable_double_free_detection();
+
+    // Disable use-after-free detection
+    crate::memory::disable_uaf_detection();
+
+    // Disable address sanitizer features
+    crate::memory::disable_address_sanitizer();
+
+    // Check for memory safety violations
+    let violations = crate::memory::get_safety_violations();
+    if !violations.is_empty() {
+        crate::println!("[WARNING] {} memory safety violations detected", violations.len());
+    }
+
+    // Verify allocator integrity
+    if !crate::memory::verify_allocator_integrity() {
+        crate::println!("[ERROR] Memory allocator corrupted");
+    }
+
+    // Disable comprehensive memory guards
+    crate::memory::disable_all_guards();
+}
+
+fn setup_security_verification_tests() {
+    // Initialize security verification environment
+
+    // Enable security audit trail
+    crate::security::enable_audit_trail();
+
+    // Enable privilege escalation detection
+    crate::security::enable_privilege_escalation_detection();
+
+    // Enable security policy enforcement
+    crate::security::enable_policy_enforcement();
+
+    // Clear security event log
+    crate::security::clear_event_log();
+
+    // Initialize security test fixtures
+    crate::security::init_test_fixtures();
+
+    // Enable cryptographic validation
+    crate::security::enable_crypto_validation();
+
+    // Record baseline security state
+    crate::validation::snapshot_security_state();
+}
+
+fn teardown_security_verification_tests() {
+    // Clean up security verification environment
+
+    // Disable cryptographic validation
+    crate::security::disable_crypto_validation();
+
+    // Clean up security test fixtures
+    crate::security::cleanup_test_fixtures();
+
+    // Analyze security events
+    let events = crate::security::get_security_events();
+    let critical_events = events.iter().filter(|e| e.is_critical()).count();
+
+    if critical_events > 0 {
+        crate::println!("[WARNING] {} critical security events detected", critical_events);
+    }
+
+    // Disable security policy enforcement
+    crate::security::disable_policy_enforcement();
+
+    // Disable privilege escalation detection
+    crate::security::disable_privilege_escalation_detection();
+
+    // Verify security state integrity
+    if !crate::validation::verify_security_state_integrity() {
+        crate::println!("[ERROR] Security state corrupted");
+    }
+
+    // Disable security audit trail
+    crate::security::disable_audit_trail();
+}
+
+fn setup_compatibility_tests() {
+    // Initialize backward compatibility test environment
+
+    // Enable legacy API support
+    crate::compat::enable_legacy_api_support();
+
+    // Initialize compatibility layer
+    crate::compat::init_compatibility_layer();
+
+    // Enable API version tracking
+    crate::compat::enable_api_versioning();
+
+    // Clear compatibility issue log
+    crate::compat::clear_issue_log();
+
+    // Set up test syscall contexts for different API versions
+    crate::compat::setup_test_contexts();
+
+    // Record supported API versions
+    crate::validation::record_api_versions();
+}
+
+fn teardown_compatibility_tests() {
+    // Clean up backward compatibility test environment
+
+    // Clean up test syscall contexts
+    crate::compat::cleanup_test_contexts();
+
+    // Analyze compatibility issues
+    let issues = crate::compat::get_compatibility_issues();
+    if !issues.is_empty() {
+        crate::println!("[WARNING] {} compatibility issues found", issues.len());
+    }
+
+    // Disable API version tracking
+    crate::compat::disable_api_versioning();
+
+    // Verify backward compatibility maintained
+    if !crate::compat::verify_backward_compatibility() {
+        crate::println!("[ERROR] Backward compatibility broken");
+    }
+
+    // Disable legacy API support
+    crate::compat::disable_legacy_api_support();
+}
+
+fn setup_hardware_validation_tests() {
+    // Initialize hardware configuration validation environment
+
+    // Enable hardware enumeration
+    crate::hardware::enable_enumeration();
+
+    // Scan for all hardware devices
+    let _ = crate::pci::scan_pci_bus();
+    let _ = crate::acpi::enumerate_devices();
+
+    // Enable hardware compatibility checking
+    crate::hardware::enable_compatibility_checking();
+
+    // Record detected hardware configuration
+    crate::validation::record_hardware_config();
+
+    // Enable hardware error detection
+    crate::hardware::enable_error_detection();
+
+    // Initialize hardware test drivers
+    crate::hardware::init_test_drivers();
+}
+
+fn teardown_hardware_validation_tests() {
+    // Clean up hardware configuration validation environment
+
+    // Clean up hardware test drivers
+    crate::hardware::cleanup_test_drivers();
+
+    // Disable hardware error detection
+    crate::hardware::disable_error_detection();
+
+    // Analyze hardware compatibility results
+    let compat_results = crate::hardware::get_compatibility_results();
+    let incompatible = compat_results.iter().filter(|r| !r.compatible).count();
+
+    if incompatible > 0 {
+        crate::println!("[WARNING] {} incompatible hardware devices found", incompatible);
+    }
+
+    // Verify hardware state unchanged
+    if !crate::validation::verify_hardware_state() {
+        crate::println!("[WARNING] Hardware state changed during testing");
+    }
+
+    // Disable hardware compatibility checking
+    crate::hardware::disable_compatibility_checking();
+
+    // Disable hardware enumeration
+    crate::hardware::disable_enumeration();
+}
+
+fn setup_performance_regression_tests() {
+    // Initialize performance regression test environment
+
+    // Load baseline performance metrics
+    crate::validation::load_baseline_metrics();
+
+    // Enable performance regression detection
+    crate::testing::enable_performance_regression_detection();
+
+    // Clear performance test results
+    crate::validation::clear_performance_results();
+
+    // Calibrate performance measurement tools
+    crate::time::calibrate_tsc();
+    crate::performance_monitor::calibrate_counters();
+
+    // Disable CPU frequency scaling for consistent results
+    crate::power::disable_frequency_scaling();
+
+    // Set CPU to maximum performance state
+    crate::power::set_max_performance();
+
+    // Record test environment characteristics
+    crate::validation::record_test_environment();
+}
+
+fn teardown_performance_regression_tests() {
+    // Clean up performance regression test environment
+
+    // Re-enable CPU frequency scaling
+    crate::power::enable_frequency_scaling();
+
+    // Restore normal power state
+    crate::power::restore_power_state();
+
+    // Analyze performance regression results
+    let regressions = crate::validation::detect_performance_regressions();
+    if !regressions.is_empty() {
+        crate::println!("[WARNING] {} performance regressions detected:", regressions.len());
+        for regression in regressions {
+            crate::println!("  - {}: {:.1}% slower", regression.metric, regression.percent);
+        }
+    }
+
+    // Generate performance comparison report
+    crate::validation::generate_performance_comparison();
+
+    // Disable performance regression detection
+    crate::testing::disable_performance_regression_detection();
+
+    // Save new baseline if no regressions
+    if regressions.is_empty() {
+        crate::validation::save_baseline_metrics();
+    }
+}
 
 // System validation test implementations
 

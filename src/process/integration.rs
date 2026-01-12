@@ -124,6 +124,20 @@ impl MemoryIntegration {
     }
 
     /// Handle copy-on-write page fault using production memory manager
+    ///
+    /// This function handles page faults that occur when a process attempts to write
+    /// to a copy-on-write (COW) page. COW pages are shared between processes (typically
+    /// after fork()) and are marked as read-only. When a process tries to write to such
+    /// a page, the kernel duplicates the page so each process has its own private copy.
+    ///
+    /// # Optimizations
+    /// - If the page has only one reference (refcount == 1), we just make it writable
+    ///   without copying (single-owner optimization)
+    /// - Otherwise, we allocate a new page, copy the contents, and update the page table
+    ///
+    /// # Arguments
+    /// * `_pid` - Process ID (currently unused, kept for future per-process handling)
+    /// * `fault_address` - Virtual address where the fault occurred
     fn handle_cow_page(_pid: Pid, fault_address: u64) -> Result<(), &'static str> {
         use crate::memory::{get_memory_manager, handle_page_fault};
         use x86_64::VirtAddr;
@@ -134,12 +148,25 @@ impl MemoryIntegration {
         // Check if this is a valid copy-on-write region
         if let Some(region) = memory_manager.find_region(fault_addr) {
             if region.protection.copy_on_write {
-                // Handle COW fault with write access
-                return handle_page_fault(fault_addr, 0x2) // Write fault
-                    .map_err(|_| "Failed to handle copy-on-write fault");
+                // The memory manager's handle_page_fault will:
+                // 1. Check the reference count of the physical frame
+                // 2. If refcount == 1: Just make the page writable (optimization)
+                // 3. If refcount > 1: Allocate new frame, copy data, update mappings
+                // 4. Decrement the reference count of the old frame
+                // 5. Flush the TLB entry
+
+                // Call page fault handler with write fault error code
+                // Error code bits: bit 0 (present=1), bit 1 (write=1) = 0x3
+                return handle_page_fault(fault_addr, 0x3)
+                    .map_err(|e| {
+                        crate::serial_println!("COW page fault handling failed for {:?}: {:?}", fault_addr, e);
+                        "Failed to handle copy-on-write fault"
+                    });
             }
         }
 
+        // Not a COW page or region not found
+        crate::serial_println!("Invalid COW access at {:?} - not a COW region", fault_addr);
         Err("Invalid copy-on-write access")
     }
 

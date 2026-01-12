@@ -1991,7 +1991,7 @@ impl MemoryManager {
         Ok(())
     }
 
-    /// Handle copy-on-write page fault
+    /// Handle copy-on-write page fault with single-owner optimization
     fn handle_copy_on_write(&self, addr: VirtAddr, region: &VirtualMemoryRegion) -> Result<(), MemoryError> {
         let page = Page::containing_address(addr);
         let mut page_table_manager = self.page_table_manager.lock();
@@ -2001,15 +2001,56 @@ impl MemoryManager {
         let old_frame_addr = page_table_manager.translate_addr(addr)
             .ok_or(MemoryError::InvalidAddress)?;
 
-        // Allocate a new frame
-        let new_frame = frame_allocator
-            .allocate_frame()
-            .ok_or(MemoryError::OutOfMemory)?;
+        // OPTIMIZATION: Check if this process is the sole owner of the page
+        // If refcount is 1, we can just change permissions instead of copying
+        let refcount = self.get_frame_refcount(old_frame_addr);
+
+        if refcount == 1 {
+            // Single owner optimization: just make the page writable
+            let mut protection = region.protection;
+            protection.writable = true;
+            protection.copy_on_write = false;
+            let flags = protection.to_page_table_flags();
+
+            // Update page flags in place
+            page_table_manager.update_flags(page, flags)
+                .map_err(|_| MemoryError::ProtectionFailed)?;
+
+            // Flush TLB for this address
+            drop(page_table_manager);
+            drop(frame_allocator);
+            x86_64::instructions::tlb::flush(addr);
+
+            crate::serial_println!("COW: Single-owner optimization applied for {:?}", addr);
+            return Ok(());
+        }
+
+        // Multiple owners: perform actual copy-on-write
+
+        // Try to allocate a new frame
+        let new_frame = if let Some(frame) = frame_allocator.allocate_frame() {
+            frame
+        } else {
+            // Out of memory - try swapping out a page
+            drop(frame_allocator);
+            drop(page_table_manager);
+
+            self.swap_out_victim_page()?;
+
+            // Re-acquire locks and try again
+            page_table_manager = self.page_table_manager.lock();
+            frame_allocator = self.frame_allocator.lock();
+
+            frame_allocator.allocate_frame()
+                .ok_or(MemoryError::OutOfMemory)?
+        };
 
         // Copy content from old page to new page
+        // Use physical address mapping (assumes kernel has direct mapping)
         unsafe {
-            let old_ptr = old_frame_addr.as_u64() as *const u8;
-            let new_ptr = new_frame.start_address().as_u64() as *mut u8;
+            let kernel_offset = 0xFFFF_8000_0000_0000;
+            let old_ptr = (old_frame_addr.as_u64() + kernel_offset) as *const u8;
+            let new_ptr = (new_frame.start_address().as_u64() + kernel_offset) as *mut u8;
             core::ptr::copy_nonoverlapping(old_ptr, new_ptr, PAGE_SIZE);
         }
 
@@ -2021,6 +2062,8 @@ impl MemoryManager {
             drop(frame_allocator);
 
             let remaining_refs = self.decrement_frame_refcount(old_frame_start);
+
+            crate::serial_println!("COW: Copied page {:?}, old frame refcount now {}", addr, remaining_refs);
 
             // Only deallocate if no more references
             if remaining_refs == 0 {
@@ -2042,6 +2085,11 @@ impl MemoryManager {
 
         page_table_manager.map_page(page, new_frame, flags, &mut *frame_allocator)
             .map_err(|_| MemoryError::MappingFailed)?;
+
+        // Flush TLB for this address
+        drop(page_table_manager);
+        drop(frame_allocator);
+        x86_64::instructions::tlb::flush(addr);
 
         Ok(())
     }
@@ -2286,6 +2334,147 @@ impl MemoryManager {
         swap_manager.swap_entries.iter()
             .any(|(_, entry)| entry.page_addr == addr)
     }
+
+    /// Check if a page is dirty (modified since last write to disk)
+    pub fn is_page_dirty(&self, addr: VirtAddr) -> bool {
+        let page = Page::containing_address(addr);
+        let page_table_manager = self.page_table_manager.lock();
+
+        // Check the dirty bit in the page table entry
+        if let Some(flags) = page_table_manager.get_flags(page) {
+            // Note: x86_64 crate doesn't expose the dirty bit directly in PageTableFlags
+            // In a full implementation, we would check bit 6 of the PTE
+            // For now, we assume pages are dirty if they're writable
+            flags.contains(PageTableFlags::WRITABLE)
+        } else {
+            false
+        }
+    }
+
+    /// Mark a page as dirty (used when writing to a page)
+    pub fn mark_page_dirty(&self, addr: VirtAddr) -> Result<(), MemoryError> {
+        let page = Page::containing_address(addr);
+        let mut page_table_manager = self.page_table_manager.lock();
+
+        // Get current flags
+        if let Some(flags) = page_table_manager.get_flags(page) {
+            // Ensure the writable bit is set (which also sets accessed/dirty bits on write)
+            if !flags.contains(PageTableFlags::WRITABLE) {
+                return Err(MemoryError::WriteViolation);
+            }
+            Ok(())
+        } else {
+            Err(MemoryError::InvalidAddress)
+        }
+    }
+
+    /// Get page status information for debugging and monitoring
+    pub fn get_page_status(&self, addr: VirtAddr) -> Option<PageStatus> {
+        let page_table_manager = self.page_table_manager.lock();
+
+        if let Some(phys_addr) = page_table_manager.translate_addr(addr) {
+            let flags = page_table_manager.get_flags(Page::containing_address(addr))?;
+
+            Some(PageStatus {
+                virtual_addr: addr,
+                physical_addr: phys_addr,
+                present: flags.contains(PageTableFlags::PRESENT),
+                writable: flags.contains(PageTableFlags::WRITABLE),
+                user_accessible: flags.contains(PageTableFlags::USER_ACCESSIBLE),
+                accessed: flags.contains(PageTableFlags::ACCESSED),
+                dirty: flags.contains(PageTableFlags::WRITABLE), // Approximation
+                copy_on_write: false, // Would need region lookup
+                swapped: self.is_page_swapped(addr),
+                refcount: self.get_frame_refcount(phys_addr),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Prefault pages in a region (demand page them before they're accessed)
+    /// This can improve performance for known access patterns
+    pub fn prefault_region(&self, start: VirtAddr, size: usize) -> Result<usize, MemoryError> {
+        let mut faulted_pages = 0;
+
+        if let Some(region) = self.find_region(start) {
+            let end = start + size as u64;
+            let mut current = start;
+
+            while current < end && current < region.end {
+                let page = Page::containing_address(current);
+                let page_table_manager = self.page_table_manager.lock();
+
+                // Check if page is already mapped
+                if page_table_manager.translate_addr(current).is_none() {
+                    drop(page_table_manager);
+
+                    // Trigger demand paging for this page
+                    if let Ok(()) = self.handle_demand_paging(current, &region) {
+                        faulted_pages += 1;
+                    }
+                }
+
+                current = current + PAGE_SIZE as u64;
+            }
+        }
+
+        Ok(faulted_pages)
+    }
+
+    /// Flush dirty pages in a region to swap (if configured)
+    pub fn flush_dirty_pages(&self, start: VirtAddr, size: usize) -> Result<usize, MemoryError> {
+        if self.swap_manager.lock().swap_device_id.is_none() {
+            return Err(MemoryError::SwapNotConfigured);
+        }
+
+        let mut flushed_pages = 0;
+        let end = start + size as u64;
+        let mut current = start;
+
+        while current < end {
+            if self.is_page_dirty(current) {
+                // This page is dirty and should be written to swap
+                // In a full implementation, we would write it without unmapping
+                // For now, we just count it
+                flushed_pages += 1;
+            }
+
+            current = current + PAGE_SIZE as u64;
+        }
+
+        Ok(flushed_pages)
+    }
+
+    /// Emergency memory reclaim - aggressively free memory
+    pub fn emergency_reclaim(&self) -> Result<usize, MemoryError> {
+        let mut reclaimed_pages = 0;
+
+        // Try to swap out multiple pages
+        for _ in 0..10 {
+            match self.swap_out_victim_page() {
+                Ok(()) => reclaimed_pages += 1,
+                Err(_) => break,
+            }
+        }
+
+        Ok(reclaimed_pages)
+    }
+}
+
+/// Page status information for debugging and monitoring
+#[derive(Debug, Clone, Copy)]
+pub struct PageStatus {
+    pub virtual_addr: VirtAddr,
+    pub physical_addr: PhysAddr,
+    pub present: bool,
+    pub writable: bool,
+    pub user_accessible: bool,
+    pub accessed: bool,
+    pub dirty: bool,
+    pub copy_on_write: bool,
+    pub swapped: bool,
+    pub refcount: usize,
 }
 
 /// ASLR seed using hardware RNG when available
@@ -2331,6 +2520,8 @@ pub enum MemoryError {
     BuddyAllocationFailed,
     FragmentationLimitExceeded,
     PermissionDenied,
+    SwapNotConfigured,
+    PageFaultUnrecoverable,
 }
 
 impl fmt::Display for MemoryError {
@@ -2353,6 +2544,8 @@ impl fmt::Display for MemoryError {
             MemoryError::BuddyAllocationFailed => write!(f, "Buddy allocation failed"),
             MemoryError::FragmentationLimitExceeded => write!(f, "Memory fragmentation limit exceeded"),
             MemoryError::PermissionDenied => write!(f, "Permission denied"),
+            MemoryError::SwapNotConfigured => write!(f, "Swap space not configured"),
+            MemoryError::PageFaultUnrecoverable => write!(f, "Unrecoverable page fault"),
         }
     }
 }

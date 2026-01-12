@@ -591,14 +591,134 @@ pub fn create_performance_benchmark_suite() -> TestSuite {
 // Setup and teardown functions
 fn setup_all_performance_tests() {
     // Initialize performance testing environment
+
+    // Initialize global performance monitor
+    let _ = init_performance_monitoring();
+
+    // Enable performance counter collection
+    crate::performance_monitor::enable_performance_counters();
+
+    // Clear all performance statistics
+    crate::performance_monitor::clear_all_stats();
+
+    // Calibrate timing mechanisms for accurate measurements
+    crate::time::calibrate_tsc();
+    crate::performance_monitor::calibrate_counters();
+
+    // Enable CPU performance monitoring units (PMU)
+    crate::performance_monitor::enable_pmu();
+
+    // Set up baseline performance metrics
+    crate::performance_monitor::establish_baseline();
+
+    // Disable power management features that could affect benchmarks
+    crate::power::disable_frequency_scaling();
+    crate::power::set_performance_mode();
+
+    // Lock CPU frequency for consistent results
+    crate::power::lock_cpu_frequency();
+
+    // Clear CPU caches to ensure fair benchmarking
+    crate::performance_monitor::flush_cpu_caches();
 }
 
 fn teardown_all_performance_tests() {
     // Clean up performance testing environment
+
+    // Re-enable power management features
+    crate::power::enable_frequency_scaling();
+    crate::power::restore_power_mode();
+
+    // Unlock CPU frequency
+    crate::power::unlock_cpu_frequency();
+
+    // Disable CPU performance monitoring units
+    crate::performance_monitor::disable_pmu();
+
+    // Collect final performance statistics
+    let summary = get_system_performance_summary();
+
+    // Generate performance report
+    crate::performance_monitor::generate_report(summary);
+
+    // Disable performance counter collection
+    crate::performance_monitor::disable_performance_counters();
+
+    // Verify no performance monitor leaks
+    if let Some(monitor) = get_performance_monitor() {
+        let (sample_count, total_samples) = monitor.get_stats();
+        if sample_count > 0 {
+            crate::println!("[INFO] Performance monitor: {} samples collected", total_samples);
+        }
+    }
 }
 
-fn setup_performance_tests() {}
-fn teardown_performance_tests() {}
+fn setup_performance_tests() {
+    // Initialize individual performance test environment
+
+    // Clear kernel statistics before test
+    crate::interrupts::clear_counters();
+    crate::syscall::clear_syscall_stats();
+    crate::scheduler::clear_scheduler_stats();
+
+    // Record baseline resource usage
+    let (mem_used, mem_total) = crate::performance_monitor::memory_usage();
+    crate::performance_monitor::set_test_baseline_memory(mem_used, mem_total);
+
+    // Record baseline TSC for timing
+    let tsc_baseline = crate::performance_monitor::read_tsc();
+    crate::performance_monitor::set_test_baseline_tsc(tsc_baseline);
+
+    // Enable detailed timing for this test
+    crate::performance_monitor::enable_detailed_timing();
+
+    // Warm up CPU caches with representative workload
+    for _ in 0..1000 {
+        unsafe { core::arch::asm!("nop"); }
+    }
+
+    // Synchronize all CPUs before test
+    crate::smp::synchronize_cpus();
+}
+
+fn teardown_performance_tests() {
+    // Clean up individual performance test environment
+
+    // Synchronize all CPUs after test
+    crate::smp::synchronize_cpus();
+
+    // Disable detailed timing
+    crate::performance_monitor::disable_detailed_timing();
+
+    // Calculate test duration
+    let tsc_final = crate::performance_monitor::read_tsc();
+    let tsc_baseline = crate::performance_monitor::get_test_baseline_tsc();
+    let cycles_elapsed = tsc_final - tsc_baseline;
+
+    // Verify resource usage stayed within bounds
+    let (mem_final, _) = crate::performance_monitor::memory_usage();
+    let (mem_baseline, _) = crate::performance_monitor::get_test_baseline_memory();
+
+    if mem_final > mem_baseline + (10 * 1024 * 1024) { // 10MB tolerance
+        crate::println!("[WARNING] Significant memory usage increase: {} bytes",
+                       mem_final - mem_baseline);
+    }
+
+    // Check for performance anomalies
+    let cpu_util = crate::performance_monitor::cpu_utilization();
+    if cpu_util > 95 {
+        crate::println!("[INFO] High CPU utilization during test: {}%", cpu_util);
+    }
+
+    // Verify no runaway processes
+    let proc_count = crate::scheduler::get_process_count();
+    if proc_count > 100 {
+        crate::println!("[WARNING] High process count: {}", proc_count);
+    }
+
+    // Log test performance metrics
+    crate::println!("[PERF] Test completed in {} cycles", cycles_elapsed);
+}
 
 // Benchmark test implementations
 

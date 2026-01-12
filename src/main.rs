@@ -110,12 +110,16 @@ mod elf_loader;
 mod syscall;
 // Include syscall handler for INT 0x80
 mod syscall_handler;
+// Include syscall context switching
+mod syscall_context;
 // Include fast syscall support (SYSCALL/SYSRET)
 mod syscall_fast;
 // Include usermode helper module
 mod usermode;
 // Include usermode testing module
 mod usermode_test;
+// Include user program execution test module
+mod userexec_test;
 
 // VGA_WRITER is now used via macros in print module
 
