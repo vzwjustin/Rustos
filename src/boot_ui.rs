@@ -918,6 +918,69 @@ impl DriverLoadResult {
     }
 }
 
+/// Display hardware peripheral detection report
+pub fn show_hardware_report() {
+    println!();
+    println!("╔════════════════════════════════════════════════════════════════════╗");
+    println!("║              HARDWARE PERIPHERAL DETECTION REPORT                  ║");
+    println!("╚════════════════════════════════════════════════════════════════════╝");
+    println!();
+
+    // Generate the hardware report
+    let report = crate::drivers::HardwareReport::generate();
+
+    // Display summary
+    let (detected, active, failed) = report.get_summary();
+    println!("  Summary: {} active, {} detected, {} not found", active, detected, failed);
+    println!();
+
+    // Display each device
+    display_device_report("PS/2 Controller", &report.ps2_controller);
+    display_device_report("Keyboard", &report.keyboard);
+    display_device_report("Mouse", &report.mouse);
+    display_device_report("Input Manager", &report.input_manager);
+
+    println!();
+    println!("────────────────────────────────────────────────────────────────────");
+    println!();
+}
+
+/// Display a single device report
+fn display_device_report(title: &str, device: &crate::drivers::DeviceReport) {
+    let status_symbol = match device.status {
+        crate::drivers::DeviceStatus::Active => "✓",
+        crate::drivers::DeviceStatus::Detected => "•",
+        crate::drivers::DeviceStatus::NotFound => "✗",
+        crate::drivers::DeviceStatus::Error => "!",
+    };
+
+    let status_color = match device.status {
+        crate::drivers::DeviceStatus::Active => Color::Green,
+        crate::drivers::DeviceStatus::Detected => Color::Yellow,
+        crate::drivers::DeviceStatus::NotFound => Color::Red,
+        crate::drivers::DeviceStatus::Error => Color::Red,
+    };
+
+    print_colored(&format!("  [{}] ", status_symbol), status_color);
+    println!("{} ({})", title, device.device_type);
+
+    if !device.details.is_empty() {
+        for detail in &device.details {
+            println!("      • {}", detail);
+        }
+    }
+
+    if !device.capabilities.is_empty() {
+        println!("      Capabilities:");
+        for capability in &device.capabilities {
+            print_colored("        + ", Color::Cyan);
+            println!("{}", capability);
+        }
+    }
+
+    println!();
+}
+
 // ============================================================================
 // File System Mount Progress
 // ============================================================================

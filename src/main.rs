@@ -271,6 +271,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // ========================================================================
     let driver_result = boot_ui::driver_loading_progress();
 
+    // Display hardware peripheral detection report
+    boot_ui::show_hardware_report();
+    boot_ui::boot_delay_medium();
+
     // Initialize time management system (part of driver loading)
     let time_initialized = match time::init() {
         Ok(()) => {
