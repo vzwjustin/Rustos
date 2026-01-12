@@ -777,7 +777,7 @@ fn modern_desktop_main_loop() -> ! {
             desktop::render_desktop();
 
             // Get current mouse position from input manager
-            let (mouse_x, mouse_y) = get_cursor_position();
+            let (mouse_x, mouse_y) = drivers::get_cursor_position();
             let button_state = drivers::input_manager::get_button_states();
 
             // Render mouse cursor overlay
