@@ -12,7 +12,7 @@ use alloc::collections::VecDeque;
 // use core::slice;
 use spin::{Mutex, RwLock};
 
-use crate::network::NetworkError;
+use super::NetworkError;
 
 // Helper trait for slice to vec conversion in no_std
 trait SliceToVec<T> {

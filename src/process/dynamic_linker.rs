@@ -24,6 +24,7 @@
 //! - System V ABI: https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.99.pdf
 //! - See docs/LINUX_APP_SUPPORT.md for implementation roadmap
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;

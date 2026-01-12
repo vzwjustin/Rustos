@@ -5,6 +5,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
+use alloc::format;
 use crate::package::{PackageResult, PackageError, PackageInfo, PackageMetadata, PackageStatus};
 
 /// Package database for tracking installed packages

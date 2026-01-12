@@ -19,7 +19,7 @@
 //! ICMPv6 checksum calculation requires IPv6 pseudo-header implementation.
 
 use super::{NetworkAddress, NetworkResult, NetworkError, PacketBuffer, NetworkStack};
-use alloc::{vec::Vec, collections::BTreeMap};
+use alloc::{vec, vec::Vec, collections::BTreeMap};
 use spin::RwLock;
 
 /// UDP header size

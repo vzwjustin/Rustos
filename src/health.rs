@@ -3,6 +3,7 @@
 
 use core::sync::atomic::{AtomicU64, AtomicU32, AtomicBool, Ordering};
 use alloc::vec::Vec;
+use alloc::vec;
 use alloc::string::String;
 use spin::{Mutex, RwLock};
 use lazy_static::lazy_static;

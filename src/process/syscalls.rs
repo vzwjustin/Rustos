@@ -3,8 +3,11 @@
 //! This module implements the system call interface for RustOS, providing
 //! a standardized way for processes to request kernel services.
 
-use super::{Pid, ProcessManager, ProcessState};
+use super::{Pid, ProcessManager, ProcessState, Priority};
 use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::vec;
+use alloc::collections::BTreeMap;
 
 /// System call numbers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -601,20 +604,36 @@ impl SyscallDispatcher {
 
     /// sys_sleep - Sleep for specified time
     fn sys_sleep(&self, args: &[u64], process_manager: &ProcessManager, current_pid: Pid) -> SyscallResult {
-        let sleep_time = args.get(0).copied().unwrap_or(0);
+        let sleep_time_ms = args.get(0).copied().unwrap_or(0);
+
+        if sleep_time_ms == 0 {
+            return SyscallResult::Success(0);
+        }
 
         // Block the process temporarily
         match process_manager.block_process(current_pid) {
             Ok(()) => {
-                // Set up timer to unblock process after sleep_time
-                if let Some(pcb) = process_manager.get_process(current_pid) {
-                    // Store wake-up time in process control block
-                    let wake_time = crate::timer::get_ticks() + (sleep_time * 1000); // Convert ms to ticks
-                    pcb.wake_time = Some(wake_time);
+                // Calculate wake-up time using the time subsystem
+                let current_time_ms = crate::time::uptime_ms();
+                let wake_time = current_time_ms + sleep_time_ms;
 
-                    // Register with timer subsystem
-                    crate::timer::register_wakeup(current_pid, wake_time);
+                // Store wake-up time in process control block
+                {
+                    let mut processes = process_manager.processes.write();
+                    if let Some(pcb) = processes.get_mut(&current_pid) {
+                        pcb.wake_time = Some(wake_time);
+                    }
                 }
+
+                // Schedule a timer callback to wake the process
+                // The timer subsystem will call back when time expires
+                let pid_copy = current_pid;
+                crate::time::schedule_timer(sleep_time_ms * 1000, move || {
+                    // Wake up the sleeping process
+                    let pm = super::get_process_manager();
+                    let _ = pm.unblock_process(pid_copy);
+                });
+
                 SyscallResult::Success(0)
             },
             Err(_) => SyscallResult::Error(SyscallError::ProcessNotFound),
@@ -636,10 +655,10 @@ impl SyscallDispatcher {
         };
 
         // Open file through VFS
-        use crate::fs::{get_vfs, OpenFlags};
+        use crate::fs::{get_vfs, SyscallOpenFlags};
         let vfs = get_vfs();
 
-        let open_flags = OpenFlags::from_bits(flags).unwrap_or(OpenFlags::READ);
+        let open_flags = SyscallOpenFlags::from_bits(flags).unwrap_or(SyscallOpenFlags::READ);
 
         match vfs.open(&path, open_flags, mode) {
             Ok(inode) => {
@@ -649,7 +668,9 @@ impl SyscallDispatcher {
                     while process.file_descriptors.contains_key(&next_fd) {
                         next_fd += 1;
                     }
-                    process.file_descriptors.insert(next_fd, inode);
+                    // Create FileDescriptor from the VFS Inode
+                    let fd = super::FileDescriptor::from_inode(inode, flags);
+                    process.file_descriptors.insert(next_fd, fd);
                     SyscallResult::Success(next_fd as u64)
                 } else {
                     SyscallResult::Error(SyscallError::ProcessNotFound)
@@ -778,9 +799,13 @@ impl SyscallDispatcher {
         let whence = args.get(2).copied().unwrap_or(0) as u32;
 
         if let Some(process) = process_manager.get_process(current_pid) {
-            if let Some(inode) = process.file_descriptors.get(&fd) {
-                let current_offset = process.file_offsets.get(&fd).copied().unwrap_or(0) as i64;
-                let file_size = inode.size() as i64;
+            if let Some(file_desc) = process.file_descriptors.get(&fd) {
+                // Get file size from the inode if this is a VFS file
+                let file_size = match file_desc.inode() {
+                    Some(inode) => inode.size() as i64,
+                    None => 0, // For non-VFS files (stdin/stdout/stderr), size is 0
+                };
+                let current_offset = file_desc.offset() as i64;
 
                 let new_offset = match whence {
                     0 => offset, // SEEK_SET
@@ -793,7 +818,10 @@ impl SyscallDispatcher {
                     return SyscallResult::Error(SyscallError::InvalidArgument);
                 }
 
-                process.file_offsets.insert(fd, new_offset as usize);
+                // Update the file descriptor's offset
+                if let Some(file_desc) = process.file_descriptors.get_mut(&fd) {
+                    file_desc.set_offset(new_offset as u64);
+                }
                 SyscallResult::Success(new_offset as u64)
             } else {
                 SyscallResult::Error(SyscallError::InvalidFileDescriptor)
@@ -815,10 +843,10 @@ impl SyscallDispatcher {
         };
 
         // Get file info through VFS
-        use crate::fs::{get_vfs, OpenFlags};
+        use crate::fs::{get_vfs, SyscallOpenFlags};
         let vfs = get_vfs();
 
-        match vfs.open(&path, OpenFlags::READ, 0) {
+        match vfs.open(&path, SyscallOpenFlags::READ, 0) {
             Ok(inode) => {
                 // Create stat structure
                 #[repr(C)]
@@ -1259,11 +1287,11 @@ impl SyscallDispatcher {
 
         // Convert priority value to Priority enum
         let new_priority = match priority_value {
-            0 => crate::scheduler::Priority::RealTime,
-            1 => crate::scheduler::Priority::High,
-            2 => crate::scheduler::Priority::Normal,
-            3 => crate::scheduler::Priority::Low,
-            4 => crate::scheduler::Priority::Idle,
+            0 => Priority::RealTime,
+            1 => Priority::High,
+            2 => Priority::Normal,
+            3 => Priority::Low,
+            4 => Priority::Idle,
             _ => return SyscallResult::Error(SyscallError::InvalidArgument),
         };
 
@@ -1285,12 +1313,12 @@ impl SyscallDispatcher {
 
         // Check privilege requirements for high priorities
         match new_priority {
-            crate::scheduler::Priority::RealTime => {
+            Priority::RealTime => {
                 if !crate::security::check_permission(current_pid, "sys_admin") {
                     return SyscallResult::Error(SyscallError::PermissionDenied);
                 }
             },
-            crate::scheduler::Priority::High => {
+            Priority::High => {
                 if let Some(ctx) = crate::security::get_context(current_pid) {
                     if ctx.level == crate::security::SecurityLevel::User && !ctx.is_root() {
                         return SyscallResult::Error(SyscallError::PermissionDenied);
@@ -1300,16 +1328,20 @@ impl SyscallDispatcher {
             _ => {} // Normal, Low, Idle available to all
         }
 
-        // Update priority in process control block
-        if let Some(process) = process_manager.get_process(target_pid) {
-            process.priority = new_priority;
+        // Update priority in process control block and scheduler
+        {
+            let mut processes = process_manager.processes.write();
+            if let Some(pcb) = processes.get_mut(&target_pid) {
+                pcb.priority = new_priority;
+            } else {
+                return SyscallResult::Error(SyscallError::ProcessNotFound);
+            }
+        }
 
-            // Notify scheduler of priority change
-            crate::scheduler::update_process_priority(target_pid, new_priority);
-
-            SyscallResult::Success(0)
-        } else {
-            SyscallResult::Error(SyscallError::ProcessNotFound)
+        // Notify scheduler of priority change using process/scheduler module
+        match super::scheduler::set_process_priority(target_pid, new_priority) {
+            Ok(()) => SyscallResult::Success(0),
+            Err(_) => SyscallResult::Error(SyscallError::InvalidArgument),
         }
     }
 

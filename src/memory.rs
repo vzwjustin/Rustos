@@ -1287,8 +1287,6 @@ impl PageTableManager {
 
     /// Get current page flags by reading page table entry directly
     pub fn get_flags(&self, page: Page) -> Option<PageTableFlags> {
-        use x86_64::structures::paging::{PageTableIndex, PageTableEntry};
-        
         // Get the current page table
         let (level_4_table_frame, _) = Cr3::read();
         let level_4_table_ptr = (self.physical_memory_offset + level_4_table_frame.start_address().as_u64()).as_mut_ptr();
@@ -2298,8 +2296,6 @@ impl MemoryManager {
     }
 }
 
-use core::sync::atomic::AtomicU64;
-
 /// ASLR seed using hardware RNG when available
 static ASLR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -2600,53 +2596,6 @@ mod tests {
     }
 }
 
-// Global memory manager instance
-static MEMORY_MANAGER: Mutex<Option<MemoryManager>> = Mutex::new(None);
-
-/// Get the global memory manager instance
-pub fn get_memory_manager() -> Option<&'static Mutex<MemoryManager>> {
-    // Check if memory manager is initialized
-    let manager_guard = MEMORY_MANAGER.lock();
-    if manager_guard.is_some() {
-        drop(manager_guard);
-        // Return a reference to the static mutex
-        // This is safe because MEMORY_MANAGER is static
-        unsafe {
-            Some(&*(&MEMORY_MANAGER as *const Mutex<Option<MemoryManager>> as *const Mutex<MemoryManager>))
-        }
-    } else {
-        None
-    }
-}
-
-/// Initialize the global memory manager
-pub fn init_memory_manager(memory_regions: &[MemoryRegion]) -> Result<(), &'static str> {
-    let mut manager_guard = MEMORY_MANAGER.lock();
-    if manager_guard.is_some() {
-        return Err("Memory manager already initialized");
-    }
-    
-    // Initialize frame allocator
-    let frame_allocator = PhysicalFrameAllocator::init(memory_regions);
-    
-    // Initialize page table manager
-    let physical_memory_offset = VirtAddr::new(0xFFFF_8000_0000_0000); // Typical offset
-    let page_table_manager = PageTableManager::new(physical_memory_offset);
-    
-    let memory_manager = MemoryManager::new(frame_allocator, page_table_manager);
-    *manager_guard = Some(memory_manager);
-    Ok(())
-}
-
-/// Get memory statistics from the global memory manager
-pub fn get_memory_stats() -> Option<MemoryReport> {
-    if let Some(memory_manager) = get_memory_manager() {
-        let manager = memory_manager.lock();
-        Some(manager.get_memory_report())
-    } else {
-        None
-    }
-}
 
 /// Fast page fault handler for common cases (complete implementation)
 /// Attempts to handle page faults quickly without full context switching
@@ -2765,6 +2714,85 @@ pub fn adjust_heap(new_size: usize) -> Result<usize, &'static str> {
         } else {
             // Size unchanged
             Ok(current_heap_size)
+        }
+    } else {
+        Err("Memory manager not initialized")
+    }
+}
+
+/// Memory flags for device I/O mapping (framebuffer, MMIO, etc.)
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryFlags {
+    flags: PageTableFlags,
+}
+
+impl MemoryFlags {
+    pub const PRESENT: Self = MemoryFlags { flags: PageTableFlags::PRESENT };
+    pub const WRITABLE: Self = MemoryFlags { flags: PageTableFlags::WRITABLE };
+    pub const NO_CACHE: Self = MemoryFlags { flags: PageTableFlags::NO_CACHE };
+    pub const WRITE_COMBINING: Self = MemoryFlags { flags: PageTableFlags::WRITE_THROUGH };
+
+    pub fn to_page_table_flags(self) -> PageTableFlags {
+        self.flags
+    }
+}
+
+impl core::ops::BitOr for MemoryFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        MemoryFlags {
+            flags: self.flags | rhs.flags,
+        }
+    }
+}
+
+/// Map physical device memory (framebuffer, MMIO registers) to virtual address space
+///
+/// This is specifically designed for mapping device I/O regions that need special caching attributes.
+/// For regular memory allocation, use the MemoryManager's allocate_region instead.
+pub fn map_physical_memory(virt: usize, phys: usize, flags: MemoryFlags) -> Result<(), &'static str> {
+    // Convert to x86_64 address types
+    let virt_addr = VirtAddr::new(virt as u64);
+    let phys_addr = PhysAddr::new(phys as u64);
+    let page = Page::containing_address(virt_addr);
+    let frame = PhysFrame::containing_address(phys_addr);
+
+    // Get the global memory manager
+    if let Some(memory_manager_mutex) = get_memory_manager() {
+        let manager = memory_manager_mutex.lock();
+        let mut page_table_manager = manager.page_table_manager.lock();
+        let mut frame_allocator = manager.frame_allocator.lock();
+
+        // Map the page with the specified flags
+        page_table_manager.map_page(page, frame, flags.to_page_table_flags(), &mut *frame_allocator)
+            .map_err(|_| "Failed to map physical memory page")?;
+
+        Ok(())
+    } else {
+        // If memory manager is not initialized, we're in early boot
+        // In this case, we'll do a direct identity mapping (unsafe but necessary)
+        // This should only happen during very early initialization
+        Err("Memory manager not initialized - cannot map physical memory")
+    }
+}
+
+/// Unmap a virtual page
+///
+/// Removes the mapping for a virtual page and invalidates the TLB entry.
+/// Note: This does not free the physical frame - it only removes the virtual mapping.
+pub fn unmap_page(addr: usize) -> Result<(), &'static str> {
+    let virt_addr = VirtAddr::new(addr as u64);
+    let page = Page::containing_address(virt_addr);
+
+    if let Some(memory_manager_mutex) = get_memory_manager() {
+        let manager = memory_manager_mutex.lock();
+        let mut page_table_manager = manager.page_table_manager.lock();
+
+        // Unmap the page
+        if page_table_manager.unmap_page(page).is_some() {
+            Ok(())
+        } else {
+            Err("Page was not mapped")
         }
     } else {
         Err("Memory manager not initialized")

@@ -13,8 +13,231 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use crate::network::drivers::{NetworkDriver, DeviceType, DeviceState, DeviceCapabilities, DriverManager};
-use crate::network::{NetworkError, MacAddress};
+use alloc::format;
+use crate::net::{NetworkError, MacAddress};
+
+// Re-export types from net::device for compatibility
+pub use crate::net::device::{DeviceType, DeviceCapabilities, NetworkDevice as NetworkDeviceTrait};
+
+/// Device state enumeration for network drivers
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceState {
+    /// Device is not initialized
+    Uninitialized,
+    /// Device is initializing
+    Initializing,
+    /// Device is ready but stopped
+    Stopped,
+    /// Device is running
+    Running,
+    /// Device is in error state
+    Error,
+    /// Device is suspended
+    Suspended,
+}
+
+/// Network driver trait for hardware-specific drivers
+pub trait NetworkDriver: Send + Sync {
+    /// Get driver name
+    fn name(&self) -> &str;
+
+    /// Get device type
+    fn device_type(&self) -> DeviceType {
+        DeviceType::Ethernet
+    }
+
+    /// Get current device state
+    fn state(&self) -> DeviceState;
+
+    /// Get device capabilities
+    fn capabilities(&self) -> &DeviceCapabilities {
+        // Default implementation - drivers should override
+        static DEFAULT_CAPS: DeviceCapabilities = DeviceCapabilities {
+            max_mtu: 1500,
+            min_mtu: 68,
+            supports_vlan: false,
+            supports_checksum_offload: false,
+            supports_tso: false,
+            supports_lro: false,
+            supports_jumbo_frames: false,
+            max_tx_queues: 1,
+            max_rx_queues: 1,
+        };
+        &DEFAULT_CAPS
+    }
+
+    /// Initialize the driver
+    fn init(&mut self) -> Result<(), NetworkError>;
+
+    /// Start the driver (enable packet transmission/reception)
+    fn start(&mut self) -> Result<(), NetworkError>;
+
+    /// Stop the driver
+    fn stop(&mut self) -> Result<(), NetworkError>;
+
+    /// Reset the device
+    fn reset(&mut self) -> Result<(), NetworkError> {
+        self.stop()?;
+        self.init()?;
+        self.start()
+    }
+
+    /// Send a packet
+    fn send_packet(&mut self, data: &[u8]) -> Result<(), NetworkError>;
+
+    /// Receive a packet (returns None if no packet available)
+    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError>;
+
+    /// Get MAC address
+    fn get_mac_address(&self) -> MacAddress;
+
+    /// Set MAC address
+    fn set_mac_address(&mut self, _mac: MacAddress) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Get link status (returns: link_up, speed_mbps, full_duplex)
+    fn get_link_status(&self) -> (bool, u32, bool);
+
+    /// Check if link is up
+    fn is_link_up(&self) -> bool {
+        let (link_up, _, _) = self.get_link_status();
+        link_up
+    }
+
+    /// Get network statistics
+    fn get_stats(&self) -> NetworkStats {
+        // Default empty stats
+        NetworkStats {
+            rx_packets: 0,
+            tx_packets: 0,
+            rx_bytes: 0,
+            tx_bytes: 0,
+            rx_errors: 0,
+            tx_errors: 0,
+            rx_dropped: 0,
+            tx_dropped: 0,
+        }
+    }
+
+    /// Set promiscuous mode
+    fn set_promiscuous(&mut self, _enabled: bool) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Add multicast address
+    fn add_multicast(&mut self, _mac: MacAddress) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Remove multicast address
+    fn remove_multicast(&mut self, _mac: MacAddress) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Set MTU (Maximum Transmission Unit)
+    fn set_mtu(&mut self, _mtu: u16) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Get current MTU
+    fn get_mtu(&self) -> u16 {
+        1500 // Default MTU
+    }
+
+    /// Handle interrupt from device
+    fn handle_interrupt(&mut self) -> Result<(), NetworkError> {
+        Ok(())
+    }
+
+    /// Set power state
+    fn set_power_state(&mut self, _state: PowerState) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+
+    /// Configure Wake-on-LAN
+    fn configure_wol(&mut self, _config: WakeOnLanConfig) -> Result<(), NetworkError> {
+        Err(NetworkError::NotSupported)
+    }
+}
+
+/// Network statistics
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NetworkStats {
+    pub rx_packets: u64,
+    pub tx_packets: u64,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_errors: u64,
+    pub tx_errors: u64,
+    pub rx_dropped: u64,
+    pub tx_dropped: u64,
+}
+
+/// Dummy Ethernet driver for testing
+pub struct DummyEthernetDriver {
+    name: String,
+    mac: MacAddress,
+    state: DeviceState,
+}
+
+impl DummyEthernetDriver {
+    pub fn new(name: String, mac: MacAddress) -> Self {
+        Self {
+            name,
+            mac,
+            state: DeviceState::Uninitialized,
+        }
+    }
+}
+
+impl NetworkDriver for DummyEthernetDriver {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn init(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Stopped;
+        Ok(())
+    }
+
+    fn start(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Running;
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Stopped;
+        Ok(())
+    }
+
+    fn send_packet(&mut self, _data: &[u8]) -> Result<(), NetworkError> {
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::NotConnected);
+        }
+        Ok(())
+    }
+
+    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError> {
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::NotConnected);
+        }
+        Ok(None)
+    }
+
+    fn get_mac_address(&self) -> MacAddress {
+        self.mac
+    }
+
+    fn state(&self) -> DeviceState {
+        self.state
+    }
+
+    fn get_link_status(&self) -> (bool, u32, bool) {
+        let link_up = self.state == DeviceState::Running;
+        (link_up, 1000, true)
+    }
+}
 
 /// Network driver types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,7 +527,7 @@ pub fn init_network_drivers() -> Result<NetworkDriverManager, NetworkError> {
     // 4. Configure hardware
 
     // For now, create a dummy driver for testing
-    let dummy_driver = crate::network::drivers::DummyEthernetDriver::new(
+    let dummy_driver = DummyEthernetDriver::new(
         "Generic Ethernet".to_string(),
         MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]),
     );
@@ -482,7 +705,7 @@ mod tests {
     fn test_network_driver_manager() {
         let mut manager = NetworkDriverManager::new();
 
-        let dummy_driver = crate::network::drivers::DummyEthernetDriver::new(
+        let dummy_driver = DummyEthernetDriver::new(
             "Test Driver".to_string(),
             MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
         );

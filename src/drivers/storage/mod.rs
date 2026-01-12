@@ -494,3 +494,483 @@ pub fn write_storage_sectors(
 pub fn init_storage_subsystem() -> Result<detection::DetectionResults, StorageError> {
     detection::detect_and_initialize_storage()
 }
+
+// =============================================================================
+// UNIFIED BLOCK DEVICE INTERFACE
+// =============================================================================
+
+/// Default storage device ID (first available device)
+/// This is used by the simplified read/write functions when no device ID is specified
+static DEFAULT_DEVICE_ID: spin::RwLock<Option<u32>> = spin::RwLock::new(None);
+
+/// Set the default storage device ID
+pub fn set_default_device(device_id: u32) {
+    *DEFAULT_DEVICE_ID.write() = Some(device_id);
+}
+
+/// Get the default storage device ID
+pub fn get_default_device() -> Option<u32> {
+    // First try the explicitly set default
+    if let Some(id) = *DEFAULT_DEVICE_ID.read() {
+        return Some(id);
+    }
+
+    // Otherwise, use the first available device
+    with_storage_manager(|manager| {
+        manager.get_all_device_info()
+            .first()
+            .map(|info| info.id)
+    }).flatten()
+}
+
+/// Read sectors from storage using unified interface (uses default device)
+///
+/// # Arguments
+/// * `sector` - Starting sector number
+/// * `count` - Number of sectors to read
+/// * `buffer` - Buffer to store read data (must be at least count * 512 bytes)
+///
+/// # Returns
+/// * `Ok(())` - Read successful
+/// * `Err(StorageError)` - Read failed
+pub fn read_sectors(sector: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError> {
+    let device_id = get_default_device().ok_or(StorageError::DeviceNotFound)?;
+
+    let sector_size = 512usize;
+    let required_size = (count as usize) * sector_size;
+
+    if buffer.len() < required_size {
+        return Err(StorageError::BufferTooSmall);
+    }
+
+    // Read in chunks if needed (handle large transfers)
+    let max_sectors_per_transfer = 256u32; // Common max for most controllers
+    let mut current_sector = sector;
+    let mut sectors_remaining = count;
+    let mut buffer_offset = 0usize;
+
+    while sectors_remaining > 0 {
+        let transfer_sectors = core::cmp::min(sectors_remaining, max_sectors_per_transfer);
+        let transfer_size = (transfer_sectors as usize) * sector_size;
+        let transfer_buffer = &mut buffer[buffer_offset..buffer_offset + transfer_size];
+
+        let bytes_read = with_storage_manager(|manager| {
+            manager.read_sectors(device_id, current_sector, transfer_buffer)
+        }).ok_or(StorageError::DeviceNotFound)??;
+
+        if bytes_read != transfer_size {
+            return Err(StorageError::MediaError);
+        }
+
+        current_sector += transfer_sectors as u64;
+        sectors_remaining -= transfer_sectors;
+        buffer_offset += transfer_size;
+    }
+
+    Ok(())
+}
+
+/// Write sectors to storage using unified interface (uses default device)
+///
+/// # Arguments
+/// * `sector` - Starting sector number
+/// * `count` - Number of sectors to write
+/// * `buffer` - Buffer containing data to write (must be at least count * 512 bytes)
+///
+/// # Returns
+/// * `Ok(())` - Write successful
+/// * `Err(StorageError)` - Write failed
+pub fn write_sectors(sector: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError> {
+    let device_id = get_default_device().ok_or(StorageError::DeviceNotFound)?;
+
+    let sector_size = 512usize;
+    let required_size = (count as usize) * sector_size;
+
+    if buffer.len() < required_size {
+        return Err(StorageError::BufferTooSmall);
+    }
+
+    // Write in chunks if needed (handle large transfers)
+    let max_sectors_per_transfer = 256u32; // Common max for most controllers
+    let mut current_sector = sector;
+    let mut sectors_remaining = count;
+    let mut buffer_offset = 0usize;
+
+    while sectors_remaining > 0 {
+        let transfer_sectors = core::cmp::min(sectors_remaining, max_sectors_per_transfer);
+        let transfer_size = (transfer_sectors as usize) * sector_size;
+        let transfer_buffer = &buffer[buffer_offset..buffer_offset + transfer_size];
+
+        let bytes_written = with_storage_manager(|manager| {
+            manager.write_sectors(device_id, current_sector, transfer_buffer)
+        }).ok_or(StorageError::DeviceNotFound)??;
+
+        if bytes_written != transfer_size {
+            return Err(StorageError::MediaError);
+        }
+
+        current_sector += transfer_sectors as u64;
+        sectors_remaining -= transfer_sectors;
+        buffer_offset += transfer_size;
+    }
+
+    Ok(())
+}
+
+/// Flush all pending writes to storage
+pub fn flush_storage() -> Result<(), StorageError> {
+    let device_id = get_default_device().ok_or(StorageError::DeviceNotFound)?;
+
+    with_storage_manager(|manager| {
+        if let Some(device) = manager.get_device_mut(device_id) {
+            device.driver.flush()
+        } else {
+            Err(StorageError::DeviceNotFound)
+        }
+    }).ok_or(StorageError::DeviceNotFound)?
+}
+
+// =============================================================================
+// MULTI-DEVICE BLOCK DEVICE INTERFACE
+// =============================================================================
+
+/// Block device abstraction for unified access to multiple storage devices
+#[derive(Debug)]
+pub struct BlockDevice {
+    device_id: u32,
+    sector_size: u32,
+    total_sectors: u64,
+    device_type: StorageDeviceType,
+}
+
+impl BlockDevice {
+    /// Create a new block device handle
+    pub fn new(device_id: u32) -> Result<Self, StorageError> {
+        with_storage_manager(|manager| {
+            if let Some(device) = manager.get_device(device_id) {
+                let caps = device.driver.capabilities();
+                Ok(BlockDevice {
+                    device_id,
+                    sector_size: caps.sector_size,
+                    total_sectors: caps.capacity_bytes / caps.sector_size as u64,
+                    device_type: device.driver.device_type(),
+                })
+            } else {
+                Err(StorageError::DeviceNotFound)
+            }
+        }).ok_or(StorageError::DeviceNotFound)?
+    }
+
+    /// Get first available block device
+    pub fn first() -> Result<Self, StorageError> {
+        let device_id = get_default_device().ok_or(StorageError::DeviceNotFound)?;
+        Self::new(device_id)
+    }
+
+    /// Get device ID
+    pub fn device_id(&self) -> u32 {
+        self.device_id
+    }
+
+    /// Get sector size in bytes
+    pub fn sector_size(&self) -> u32 {
+        self.sector_size
+    }
+
+    /// Get total number of sectors
+    pub fn total_sectors(&self) -> u64 {
+        self.total_sectors
+    }
+
+    /// Get device type
+    pub fn device_type(&self) -> StorageDeviceType {
+        self.device_type
+    }
+
+    /// Get total capacity in bytes
+    pub fn capacity_bytes(&self) -> u64 {
+        self.total_sectors * self.sector_size as u64
+    }
+
+    /// Read sectors from this device
+    pub fn read(&self, sector: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError> {
+        let required_size = (count as usize) * (self.sector_size as usize);
+        if buffer.len() < required_size {
+            return Err(StorageError::BufferTooSmall);
+        }
+
+        if sector + count as u64 > self.total_sectors {
+            return Err(StorageError::InvalidSector);
+        }
+
+        let bytes_read = read_storage_sectors(self.device_id, sector, buffer)?;
+        if bytes_read != required_size {
+            return Err(StorageError::MediaError);
+        }
+
+        Ok(())
+    }
+
+    /// Write sectors to this device
+    pub fn write(&self, sector: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError> {
+        let required_size = (count as usize) * (self.sector_size as usize);
+        if buffer.len() < required_size {
+            return Err(StorageError::BufferTooSmall);
+        }
+
+        if sector + count as u64 > self.total_sectors {
+            return Err(StorageError::InvalidSector);
+        }
+
+        let bytes_written = write_storage_sectors(self.device_id, sector, buffer)?;
+        if bytes_written != required_size {
+            return Err(StorageError::MediaError);
+        }
+
+        Ok(())
+    }
+
+    /// Flush pending writes
+    pub fn flush(&self) -> Result<(), StorageError> {
+        with_storage_manager(|manager| {
+            if let Some(device) = manager.get_device_mut(self.device_id) {
+                device.driver.flush()
+            } else {
+                Err(StorageError::DeviceNotFound)
+            }
+        }).ok_or(StorageError::DeviceNotFound)?
+    }
+
+    /// Get device statistics
+    pub fn statistics(&self) -> Result<StorageStats, StorageError> {
+        with_storage_manager(|manager| {
+            if let Some(device) = manager.get_device(self.device_id) {
+                Ok(device.driver.get_stats())
+            } else {
+                Err(StorageError::DeviceNotFound)
+            }
+        }).ok_or(StorageError::DeviceNotFound)?
+    }
+}
+
+/// List all available block devices
+pub fn list_block_devices() -> Vec<BlockDevice> {
+    with_storage_manager(|manager| {
+        manager.get_all_device_info()
+            .iter()
+            .filter_map(|info| BlockDevice::new(info.id).ok())
+            .collect()
+    }).unwrap_or_default()
+}
+
+/// Get block device by type
+pub fn get_device_by_type(device_type: StorageDeviceType) -> Option<BlockDevice> {
+    with_storage_manager(|manager| {
+        manager.get_all_device_info()
+            .iter()
+            .find(|info| info.device_type == device_type)
+            .and_then(|info| BlockDevice::new(info.id).ok())
+    }).flatten()
+}
+
+// =============================================================================
+// PARTITION TABLE SUPPORT
+// =============================================================================
+
+/// MBR partition entry
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct MbrPartitionEntry {
+    pub bootable: u8,
+    pub start_chs: [u8; 3],
+    pub partition_type: u8,
+    pub end_chs: [u8; 3],
+    pub start_lba: u32,
+    pub sector_count: u32,
+}
+
+/// GPT partition entry (simplified)
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct GptPartitionEntry {
+    pub type_guid: [u8; 16],
+    pub partition_guid: [u8; 16],
+    pub start_lba: u64,
+    pub end_lba: u64,
+    pub attributes: u64,
+    pub name: [u16; 36],
+}
+
+/// Partition information
+#[derive(Debug, Clone)]
+pub struct PartitionInfo {
+    pub device_id: u32,
+    pub partition_number: u32,
+    pub start_sector: u64,
+    pub sector_count: u64,
+    pub partition_type: PartitionType,
+    pub bootable: bool,
+    pub name: Option<String>,
+}
+
+/// Partition type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionType {
+    Empty,
+    Fat12,
+    Fat16,
+    Fat32,
+    ExtendedBoot,
+    Ntfs,
+    LinuxSwap,
+    LinuxNative,
+    LinuxLvm,
+    Efi,
+    Unknown(u8),
+}
+
+impl From<u8> for PartitionType {
+    fn from(type_byte: u8) -> Self {
+        match type_byte {
+            0x00 => PartitionType::Empty,
+            0x01 => PartitionType::Fat12,
+            0x04 | 0x06 | 0x0E => PartitionType::Fat16,
+            0x0B | 0x0C => PartitionType::Fat32,
+            0x05 | 0x0F => PartitionType::ExtendedBoot,
+            0x07 => PartitionType::Ntfs,
+            0x82 => PartitionType::LinuxSwap,
+            0x83 => PartitionType::LinuxNative,
+            0x8E => PartitionType::LinuxLvm,
+            0xEF => PartitionType::Efi,
+            other => PartitionType::Unknown(other),
+        }
+    }
+}
+
+/// Read MBR partition table
+pub fn read_mbr_partitions(device_id: u32) -> Result<Vec<PartitionInfo>, StorageError> {
+    let mut buffer = [0u8; 512];
+    read_storage_sectors(device_id, 0, &mut buffer)?;
+
+    // Check MBR signature
+    if buffer[510] != 0x55 || buffer[511] != 0xAA {
+        return Err(StorageError::MediaError);
+    }
+
+    let mut partitions = Vec::new();
+
+    // Parse partition entries (offset 446, 4 entries of 16 bytes each)
+    for i in 0..4 {
+        let offset = 446 + i * 16;
+        let entry = unsafe {
+            core::ptr::read_unaligned(buffer.as_ptr().add(offset) as *const MbrPartitionEntry)
+        };
+
+        // Skip empty partitions
+        if entry.partition_type == 0 || entry.sector_count == 0 {
+            continue;
+        }
+
+        partitions.push(PartitionInfo {
+            device_id,
+            partition_number: i as u32 + 1,
+            start_sector: entry.start_lba as u64,
+            sector_count: entry.sector_count as u64,
+            partition_type: PartitionType::from(entry.partition_type),
+            bootable: entry.bootable == 0x80,
+            name: None,
+        });
+    }
+
+    Ok(partitions)
+}
+
+/// Check if device has GPT partition table
+pub fn is_gpt_device(device_id: u32) -> Result<bool, StorageError> {
+    let mut buffer = [0u8; 512];
+
+    // Read LBA 1 (GPT header)
+    read_storage_sectors(device_id, 1, &mut buffer)?;
+
+    // Check GPT signature "EFI PART"
+    Ok(&buffer[0..8] == b"EFI PART")
+}
+
+// =============================================================================
+// STORAGE SUBSYSTEM CONTROL
+// =============================================================================
+
+/// Storage subsystem status
+#[derive(Debug, Clone)]
+pub struct StorageSubsystemStatus {
+    pub initialized: bool,
+    pub device_count: usize,
+    pub total_capacity_bytes: u64,
+    pub manager_stats: StorageManagerStats,
+}
+
+/// Get storage subsystem status
+pub fn get_subsystem_status() -> StorageSubsystemStatus {
+    with_storage_manager(|manager| {
+        let devices = manager.get_all_device_info();
+        let total_capacity: u64 = devices.iter()
+            .map(|d| d.capabilities.capacity_bytes)
+            .sum();
+
+        StorageSubsystemStatus {
+            initialized: true,
+            device_count: devices.len(),
+            total_capacity_bytes: total_capacity,
+            manager_stats: manager.get_stats().clone(),
+        }
+    }).unwrap_or(StorageSubsystemStatus {
+        initialized: false,
+        device_count: 0,
+        total_capacity_bytes: 0,
+        manager_stats: StorageManagerStats::default(),
+    })
+}
+
+/// Reset a storage device
+pub fn reset_device(device_id: u32) -> Result<(), StorageError> {
+    with_storage_manager(|manager| {
+        if let Some(device) = manager.get_device_mut(device_id) {
+            device.driver.reset()
+        } else {
+            Err(StorageError::DeviceNotFound)
+        }
+    }).ok_or(StorageError::DeviceNotFound)?
+}
+
+/// Put a storage device in standby mode
+pub fn standby_device(device_id: u32) -> Result<(), StorageError> {
+    with_storage_manager(|manager| {
+        if let Some(device) = manager.get_device_mut(device_id) {
+            device.driver.standby()
+        } else {
+            Err(StorageError::DeviceNotFound)
+        }
+    }).ok_or(StorageError::DeviceNotFound)?
+}
+
+/// Wake a storage device from standby
+pub fn wake_device(device_id: u32) -> Result<(), StorageError> {
+    with_storage_manager(|manager| {
+        if let Some(device) = manager.get_device_mut(device_id) {
+            device.driver.wake()
+        } else {
+            Err(StorageError::DeviceNotFound)
+        }
+    }).ok_or(StorageError::DeviceNotFound)?
+}
+
+/// Get SMART data from a device
+pub fn get_device_smart_data(device_id: u32) -> Result<Vec<u8>, StorageError> {
+    with_storage_manager(|manager| {
+        if let Some(device) = manager.get_device(device_id) {
+            device.driver.get_smart_data()
+        } else {
+            Err(StorageError::DeviceNotFound)
+        }
+    }).ok_or(StorageError::DeviceNotFound)?
+}

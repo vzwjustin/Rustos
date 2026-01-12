@@ -717,9 +717,38 @@ pub fn generate_opensource_driver_report() -> String {
 pub fn has_opensource_drivers() -> bool {
     let registry = DRIVER_REGISTRY.lock();
     !registry.loaded_drivers.is_empty()
-}    //
-/ Initialize hardware communication for the GPU driver
-    fn initialize_hardware_communication(&mut self, gpu_id: u32, pci_device: &PCIDevice, driver: &OpensourceDriver) -> Result<(), &'static str> {
+}
+
+/// NVIDIA GPU generation enumeration for Nouveau driver
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NVGeneration {
+    /// Tesla architecture (G80-GT200)
+    NV50,
+    /// Fermi architecture (GF100-GF119)
+    NVC0,
+    /// Kepler architecture (GK104-GK208)
+    NVE0,
+    /// Maxwell architecture (GM107-GM206)
+    NV110,
+    /// Pascal architecture (GP102-GP108)
+    NV130,
+    /// Turing architecture (TU102-TU117)
+    NV140,
+    /// Ampere architecture (GA102-GA107)
+    NV170,
+    /// Unknown or unsupported generation
+    Unknown,
+}
+
+/// Hardware communication implementation for OpensourceDriverRegistry
+impl OpensourceDriverRegistry {
+    /// Initialize hardware communication for the GPU driver
+    fn initialize_hardware_communication(
+        &self,
+        gpu_id: u32,
+        pci_device: &PCIDevice,
+        driver: &OpensourceDriver,
+    ) -> Result<(), &'static str> {
         match driver.driver_type {
             DriverType::I915 => self.initialize_i915_hardware(gpu_id, pci_device),
             DriverType::AMDGPU => self.initialize_amdgpu_hardware(gpu_id, pci_device),
@@ -727,59 +756,59 @@ pub fn has_opensource_drivers() -> bool {
             _ => Err("Unsupported driver type for hardware initialization"),
         }
     }
-    
+
     /// Initialize Intel i915 hardware communication
     fn initialize_i915_hardware(&self, gpu_id: u32, pci_device: &PCIDevice) -> Result<(), &'static str> {
         // Map Intel GPU registers
         let bar0 = self.read_pci_bar(pci_device, 0)?;
         let register_base = self.map_gpu_registers(bar0, 16 * 1024 * 1024)?; // Map 16MB
-        
+
         unsafe {
             let reg_base = register_base as *mut u32;
-            
+
             // Read GPU identification
             let device_info = core::ptr::read_volatile(reg_base.add(0x0));
             if device_info == 0xFFFFFFFF {
                 return Err("Failed to read Intel GPU registers");
             }
-            
+
             // Initialize Graphics Technology (GT) interface
             let gt_mode = core::ptr::read_volatile(reg_base.add(0x7000 / 4));
             core::ptr::write_volatile(reg_base.add(0x7000 / 4), gt_mode | 0x1);
-            
+
             // Enable power management
             let pm_ctrl = core::ptr::read_volatile(reg_base.add(0xA094 / 4));
             core::ptr::write_volatile(reg_base.add(0xA094 / 4), pm_ctrl | 0x1);
-            
+
             // Initialize display engine if present
             self.initialize_intel_display(reg_base)?;
-            
+
             // Set up interrupt handling
             self.setup_intel_interrupts(reg_base, gpu_id)?;
         }
-        
+
         crate::println!("Intel i915 hardware initialized for GPU {}", gpu_id);
         Ok(())
     }
-    
+
     /// Initialize AMD GPU hardware communication
     fn initialize_amdgpu_hardware(&self, gpu_id: u32, pci_device: &PCIDevice) -> Result<(), &'static str> {
         // Map AMD GPU registers
         let bar0 = self.read_pci_bar(pci_device, 0)?;
         let register_base = self.map_gpu_registers(bar0, 32 * 1024 * 1024)?; // Map 32MB
-        
+
         unsafe {
             let reg_base = register_base as *mut u32;
-            
+
             // Read GPU identification
             let device_info = core::ptr::read_volatile(reg_base.add(0x0));
             if device_info == 0xFFFFFFFF {
                 return Err("Failed to read AMD GPU registers");
             }
-            
+
             // Initialize Command Processor (CP)
             core::ptr::write_volatile(reg_base.add(0x8040 / 4), 0x0); // Reset CP
-            
+
             // Wait for reset completion
             let mut timeout = 1000;
             while timeout > 0 {
@@ -788,46 +817,48 @@ pub fn has_opensource_drivers() -> bool {
                     break;
                 }
                 timeout -= 1;
-                for _ in 0..100 { core::hint::spin_loop(); }
+                for _ in 0..100 {
+                    core::hint::spin_loop();
+                }
             }
-            
+
             if timeout == 0 {
                 return Err("AMD GPU CP reset timeout");
             }
-            
+
             // Enable graphics engine
             let gfx_enable = core::ptr::read_volatile(reg_base.add(0x8010 / 4));
             core::ptr::write_volatile(reg_base.add(0x8010 / 4), gfx_enable | 0x1);
-            
+
             // Initialize memory controller
             self.initialize_amd_memory_controller(reg_base)?;
-            
+
             // Load required firmware
             self.load_amd_firmware(gpu_id, pci_device.device_id)?;
         }
-        
+
         crate::println!("AMD GPU hardware initialized for GPU {}", gpu_id);
         Ok(())
     }
-    
+
     /// Initialize NVIDIA Nouveau hardware communication
     fn initialize_nouveau_hardware(&self, gpu_id: u32, pci_device: &PCIDevice) -> Result<(), &'static str> {
         // Map NVIDIA GPU registers
         let bar0 = self.read_pci_bar(pci_device, 0)?;
         let register_base = self.map_gpu_registers(bar0, 16 * 1024 * 1024)?; // Map 16MB
-        
+
         unsafe {
             let reg_base = register_base as *mut u32;
-            
+
             // Read GPU identification
             let device_info = core::ptr::read_volatile(reg_base.add(0x0));
             if device_info == 0xFFFFFFFF {
                 return Err("Failed to read NVIDIA GPU registers");
             }
-            
+
             // Detect GPU generation
             let gpu_generation = self.detect_nvidia_generation(pci_device.device_id);
-            
+
             // Initialize based on generation
             match gpu_generation {
                 NVGeneration::NV50 | NVGeneration::NVC0 | NVGeneration::NVE0 => {
@@ -843,18 +874,18 @@ pub fn has_opensource_drivers() -> bool {
                 }
             }
         }
-        
+
         crate::println!("NVIDIA Nouveau hardware initialized for GPU {}", gpu_id);
         Ok(())
     }
-    
+
     /// Initialize Intel display engine
     fn initialize_intel_display(&self, reg_base: *mut u32) -> Result<(), &'static str> {
         unsafe {
             // Enable display power well
             let power_well = core::ptr::read_volatile(reg_base.add(0x45400 / 4));
             core::ptr::write_volatile(reg_base.add(0x45400 / 4), power_well | 0x1);
-            
+
             // Wait for power well to stabilize
             let mut timeout = 1000;
             while timeout > 0 {
@@ -863,62 +894,68 @@ pub fn has_opensource_drivers() -> bool {
                     break;
                 }
                 timeout -= 1;
-                for _ in 0..100 { core::hint::spin_loop(); }
+                for _ in 0..100 {
+                    core::hint::spin_loop();
+                }
             }
-            
+
             // Initialize display pipes
-            for pipe in 0..3 { // Pipe A, B, C
+            for pipe in 0..3u32 {
+                // Pipe A, B, C
                 let pipe_conf_reg = 0x70008 + pipe * 0x1000;
-                let pipe_conf = core::ptr::read_volatile(reg_base.add(pipe_conf_reg / 4));
-                core::ptr::write_volatile(reg_base.add(pipe_conf_reg / 4), pipe_conf | 0x80000000);
+                let pipe_conf = core::ptr::read_volatile(reg_base.add(pipe_conf_reg as usize / 4));
+                core::ptr::write_volatile(
+                    reg_base.add(pipe_conf_reg as usize / 4),
+                    pipe_conf | 0x80000000,
+                );
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Set up Intel GPU interrupts
     fn setup_intel_interrupts(&self, reg_base: *mut u32, gpu_id: u32) -> Result<(), &'static str> {
         unsafe {
             // Enable master interrupt
             core::ptr::write_volatile(reg_base.add(0x44200 / 4), 0x80000000);
-            
+
             // Enable specific interrupt sources
             let interrupt_mask = 0x1 | 0x2 | 0x4; // Display, render, blitter
             core::ptr::write_volatile(reg_base.add(0x44204 / 4), interrupt_mask);
-            
+
             // Clear any pending interrupts
             core::ptr::write_volatile(reg_base.add(0x44208 / 4), 0xFFFFFFFF);
         }
-        
+
         crate::println!("Intel GPU interrupts configured for GPU {}", gpu_id);
         Ok(())
     }
-    
+
     /// Initialize AMD memory controller
     fn initialize_amd_memory_controller(&self, reg_base: *mut u32) -> Result<(), &'static str> {
         unsafe {
             // Configure memory controller
             let mc_config = core::ptr::read_volatile(reg_base.add(0x2000 / 4));
             core::ptr::write_volatile(reg_base.add(0x2000 / 4), mc_config | 0x1);
-            
+
             // Set up GART (Graphics Address Remapping Table)
             let gart_base = 0x1000000u32; // 16MB base address
             core::ptr::write_volatile(reg_base.add(0x2004 / 4), gart_base);
             core::ptr::write_volatile(reg_base.add(0x2008 / 4), 0x100000); // 1MB GART size
-            
+
             // Enable GART
             let gart_config = core::ptr::read_volatile(reg_base.add(0x200C / 4));
             core::ptr::write_volatile(reg_base.add(0x200C / 4), gart_config | 0x1);
         }
-        
+
         Ok(())
     }
-    
+
     /// Load AMD GPU firmware
     fn load_amd_firmware(&self, gpu_id: u32, device_id: u16) -> Result<(), &'static str> {
         // Determine required firmware based on device ID
-        let firmware_files = match device_id {
+        let firmware_files: Vec<&str> = match device_id {
             // RDNA2 (Navi 21)
             0x73A0..=0x73AF => vec![
                 "amdgpu/navi21_pfp.bin",
@@ -952,43 +989,51 @@ pub fn has_opensource_drivers() -> bool {
             ],
             _ => vec!["amdgpu/generic_firmware.bin"],
         };
-        
+
         for firmware_file in firmware_files {
             // In production, this would load actual firmware from filesystem
             // For now, just validate the firmware would be available
             if !self.validate_firmware_availability(firmware_file) {
-                crate::println!("Warning: Firmware {} not available for GPU {}", firmware_file, gpu_id);
+                crate::println!(
+                    "Warning: Firmware {} not available for GPU {}",
+                    firmware_file,
+                    gpu_id
+                );
             } else {
                 crate::println!("Loaded firmware {} for GPU {}", firmware_file, gpu_id);
             }
         }
-        
+
         Ok(())
     }
-    
-    /// Detect NVIDIA GPU generation
+
+    /// Detect NVIDIA GPU generation from device ID
     fn detect_nvidia_generation(&self, device_id: u16) -> NVGeneration {
         match device_id {
-            0x0400..=0x05FF => NVGeneration::NV50,   // Tesla
-            0x06C0..=0x0DFF => NVGeneration::NVC0,   // Fermi
-            0x0FC0..=0x12FF => NVGeneration::NVE0,   // Kepler
-            0x1340..=0x17FF => NVGeneration::NV110,  // Maxwell
-            0x15F0..=0x1FFF => NVGeneration::NV130,  // Pascal
-            0x1E00..=0x21FF => NVGeneration::NV140,  // Turing
-            0x2200..=0x25FF => NVGeneration::NV170,  // Ampere
+            0x0400..=0x05FF => NVGeneration::NV50,  // Tesla
+            0x06C0..=0x0DFF => NVGeneration::NVC0,  // Fermi
+            0x0FC0..=0x12FF => NVGeneration::NVE0,  // Kepler
+            0x1340..=0x17FF => NVGeneration::NV110, // Maxwell
+            0x15F0..=0x1FFF => NVGeneration::NV130, // Pascal
+            0x1E00..=0x21FF => NVGeneration::NV140, // Turing
+            0x2200..=0x25FF => NVGeneration::NV170, // Ampere
             _ => NVGeneration::Unknown,
         }
     }
-    
+
     /// Initialize legacy NVIDIA GPUs (good Nouveau support)
-    fn initialize_nouveau_legacy(&self, reg_base: *mut u32, generation: NVGeneration) -> Result<(), &'static str> {
+    fn initialize_nouveau_legacy(
+        &self,
+        reg_base: *mut u32,
+        generation: NVGeneration,
+    ) -> Result<(), &'static str> {
         unsafe {
             // Initialize PFIFO (command submission engine)
             core::ptr::write_volatile(reg_base.add(0x2500 / 4), 0x1); // Enable PFIFO
-            
+
             // Initialize PGRAPH (graphics engine)
             core::ptr::write_volatile(reg_base.add(0x400000 / 4), 0x1); // Enable PGRAPH
-            
+
             // Set up channel contexts based on generation
             match generation {
                 NVGeneration::NV50 => {
@@ -1006,26 +1051,30 @@ pub fn has_opensource_drivers() -> bool {
                 _ => {}
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Initialize modern NVIDIA GPUs (limited Nouveau support)
-    fn initialize_nouveau_modern(&self, reg_base: *mut u32, generation: NVGeneration) -> Result<(), &'static str> {
+    fn initialize_nouveau_modern(
+        &self,
+        reg_base: *mut u32,
+        generation: NVGeneration,
+    ) -> Result<(), &'static str> {
         unsafe {
             // Modern NVIDIA GPUs require signed firmware
             // Nouveau support is limited without proper firmware
-            
+
             // Try basic initialization
             let device_info = core::ptr::read_volatile(reg_base.add(0x0));
             crate::println!("NVIDIA GPU device info: 0x{:08X}", device_info);
-            
+
             // Check if we can access basic registers
             let pmc_enable = core::ptr::read_volatile(reg_base.add(0x200 / 4));
             if pmc_enable == 0xFFFFFFFF {
                 return Err("Cannot access NVIDIA GPU registers");
             }
-            
+
             match generation {
                 NVGeneration::NV110 => {
                     crate::println!("Maxwell GPU detected - limited Nouveau support");
@@ -1038,23 +1087,23 @@ pub fn has_opensource_drivers() -> bool {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Read PCI BAR (Base Address Register)
     fn read_pci_bar(&self, pci_device: &PCIDevice, bar_index: u8) -> Result<u64, &'static str> {
         if bar_index > 5 {
             return Err("Invalid BAR index");
         }
-        
-        let bar_offset = 0x10 + (bar_index as u8 * 4);
+
+        let bar_offset = 0x10 + (bar_index * 4);
         let bar_value = self.read_pci_config_dword(pci_device, bar_offset)?;
-        
+
         if (bar_value & 0x1) != 0 {
             return Err("I/O space BAR not supported");
         }
-        
+
         // Handle 64-bit BARs
         if (bar_value & 0x6) == 0x4 && bar_index < 5 {
             let bar_high = self.read_pci_config_dword(pci_device, bar_offset + 4)?;
@@ -1063,74 +1112,81 @@ pub fn has_opensource_drivers() -> bool {
             Ok((bar_value & 0xFFFFFFF0) as u64)
         }
     }
-    
+
     /// Map GPU registers to virtual memory
-    fn map_gpu_registers(&self, physical_addr: u64, size: usize) -> Result<u64, &'static str> {
+    fn map_gpu_registers(&self, physical_addr: u64, _size: usize) -> Result<u64, &'static str> {
         // In production, this would use the memory manager to map physical to virtual
         // For now, assume direct mapping in kernel space
         if physical_addr == 0 {
             return Err("Invalid physical address for GPU registers");
         }
-        
+
         // Validate address is in reasonable range for GPU registers
-        if physical_addr < 0x80000000 || physical_addr >= 0x100000000 {
+        // Accept addresses above 2GB (typical PCI memory range) up to 4GB or higher
+        if physical_addr < 0x80000000 {
             return Err("GPU register address outside expected range");
         }
-        
-        // Return virtual address (simplified direct mapping)
+
+        // Return virtual address (simplified direct mapping using higher-half kernel addressing)
         Ok(physical_addr | 0xFFFF800000000000)
     }
-    
-    /// Read PCI configuration dword
+
+    /// Read PCI configuration dword using I/O ports
     fn read_pci_config_dword(&self, pci_device: &PCIDevice, offset: u8) -> Result<u32, &'static str> {
         let address = 0x80000000u32
             | ((pci_device.bus as u32) << 16)
             | ((pci_device.device as u32) << 11)
             | ((pci_device.function as u32) << 8)
-            | (offset as u32 & 0xFC);
-        
+            | ((offset as u32) & 0xFC);
+
         unsafe {
-            // Write address to CONFIG_ADDRESS port
-            core::arch::asm!("out dx, eax", in("dx") 0xCF8u16, in("eax") address, options(nostack, preserves_flags));
-            
-            // Read data from CONFIG_DATA port
-            let mut data: u32;
-            core::arch::asm!("in eax, dx", out("eax") data, in("dx") 0xCFCu16, options(nostack, preserves_flags));
+            // Write address to CONFIG_ADDRESS port (0xCF8)
+            core::arch::asm!(
+                "out dx, eax",
+                in("dx") 0xCF8u16,
+                in("eax") address,
+                options(nostack, preserves_flags)
+            );
+
+            // Read data from CONFIG_DATA port (0xCFC)
+            let data: u32;
+            core::arch::asm!(
+                "in eax, dx",
+                out("eax") data,
+                in("dx") 0xCFCu16,
+                options(nostack, preserves_flags)
+            );
             Ok(data)
         }
     }
-    
-    /// Read PCI subsystem vendor ID
+
+    /// Read PCI subsystem vendor ID from configuration space
     fn read_pci_subsystem_vendor(&self, pci_device: &PCIDevice) -> Result<u16, &'static str> {
         let subsystem_data = self.read_pci_config_dword(pci_device, 0x2C)?;
         Ok((subsystem_data & 0xFFFF) as u16)
     }
-    
-    /// Read PCI subsystem device ID
+
+    /// Read PCI subsystem device ID from configuration space
     fn read_pci_subsystem_device(&self, pci_device: &PCIDevice) -> Result<u16, &'static str> {
         let subsystem_data = self.read_pci_config_dword(pci_device, 0x2C)?;
         Ok(((subsystem_data >> 16) & 0xFFFF) as u16)
     }
-    
-    /// Validate firmware availability
+
+    /// Validate firmware availability in the firmware store
     fn validate_firmware_availability(&self, firmware_path: &str) -> bool {
         // In production, this would check if firmware exists in /lib/firmware/
         // For now, simulate firmware availability based on common firmware files
-        matches!(firmware_path,
-            "amdgpu/navi21_pfp.bin" | "amdgpu/navi21_me.bin" | "amdgpu/navi21_ce.bin" |
-            "amdgpu/navi10_pfp.bin" | "amdgpu/navi10_me.bin" | "amdgpu/navi10_ce.bin" |
-            "amdgpu/vega10_pfp.bin" | "amdgpu/vega10_me.bin" | "amdgpu/vega10_ce.bin"
+        matches!(
+            firmware_path,
+            "amdgpu/navi21_pfp.bin"
+                | "amdgpu/navi21_me.bin"
+                | "amdgpu/navi21_ce.bin"
+                | "amdgpu/navi10_pfp.bin"
+                | "amdgpu/navi10_me.bin"
+                | "amdgpu/navi10_ce.bin"
+                | "amdgpu/vega10_pfp.bin"
+                | "amdgpu/vega10_me.bin"
+                | "amdgpu/vega10_ce.bin"
         )
     }
-    
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum NVGeneration {
-        NV50,
-        NVC0,
-        NVE0,
-        NV110,
-        NV130,
-        NV140,
-        NV170,
-        Unknown,
-    }
+}

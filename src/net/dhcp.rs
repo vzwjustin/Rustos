@@ -2,7 +2,7 @@
 //!
 //! A simplified DHCP client implementation for no_std environments
 
-use crate::network::{Ipv4Address, MacAddress, NetworkError};
+use super::{Ipv4Address, MacAddress, NetworkError};
 use core::fmt;
 
 /// DHCP message types

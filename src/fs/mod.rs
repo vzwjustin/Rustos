@@ -14,10 +14,11 @@ pub mod ext4;
 pub mod fat32;
 pub mod buffer;
 
-use alloc::{string::{String, ToString}, vec::Vec, collections::BTreeMap, format, boxed::Box};
+use alloc::{string::{String, ToString}, vec::Vec, collections::BTreeMap, format, boxed::Box, sync::Arc};
 use core::fmt;
 use spin::{RwLock, Mutex};
 use lazy_static::lazy_static;
+use bitflags::bitflags;
 
 /// File descriptor type
 pub type FileDescriptor = i32;
@@ -342,6 +343,259 @@ pub enum SeekFrom {
     Current(i64),
     /// Seek from end of file
     End(i64),
+}
+
+// ============================================================================
+// Syscall-compatible VFS Interface
+// ============================================================================
+
+bitflags! {
+    /// POSIX-compatible open flags for syscall interface
+    pub struct SyscallOpenFlags: u32 {
+        /// Open for reading only
+        const READ = 0o0;
+        /// Open for writing only
+        const WRITE = 0o1;
+        /// Open for reading and writing
+        const RDWR = 0o2;
+        /// Create file if it doesn't exist
+        const CREAT = 0o100;
+        /// Fail if file exists (with CREAT)
+        const EXCL = 0o200;
+        /// Truncate file to zero length
+        const TRUNC = 0o1000;
+        /// Append mode
+        const APPEND = 0o2000;
+        /// Non-blocking mode
+        const NONBLOCK = 0o4000;
+        /// Synchronous I/O
+        const SYNC = 0o10000;
+    }
+}
+
+/// Inode handle for syscall interface
+/// Represents an open file with methods for file operations
+#[derive(Debug, Clone)]
+pub struct Inode {
+    /// Inode number
+    inode_number: InodeNumber,
+    /// File size
+    size: u64,
+    /// File mode (permissions and type)
+    mode: u32,
+    /// File type
+    file_type: FileType,
+    /// Reference to the filesystem
+    mount_index: usize,
+    /// File content cache (for RAM filesystem)
+    content: Arc<RwLock<Vec<u8>>>,
+}
+
+impl Inode {
+    /// Create a new inode handle
+    pub fn new(inode_number: InodeNumber, size: u64, mode: u32, file_type: FileType, mount_index: usize) -> Self {
+        Self {
+            inode_number,
+            size,
+            mode,
+            file_type,
+            mount_index,
+            content: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// Create inode with content
+    pub fn with_content(inode_number: InodeNumber, size: u64, mode: u32, file_type: FileType, mount_index: usize, content: Vec<u8>) -> Self {
+        Self {
+            inode_number,
+            size,
+            mode,
+            file_type,
+            mount_index,
+            content: Arc::new(RwLock::new(content)),
+        }
+    }
+
+    /// Get the inode number
+    pub fn inode_number(&self) -> InodeNumber {
+        self.inode_number
+    }
+
+    /// Get the file size
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Get the file mode (permissions and type encoded as u32)
+    pub fn mode(&self) -> u32 {
+        self.mode
+    }
+
+    /// Get the file type
+    pub fn file_type(&self) -> FileType {
+        self.file_type
+    }
+
+    /// Read from the inode at a given offset
+    pub fn read(&self, offset: u64, buffer: &mut [u8]) -> FsResult<usize> {
+        let content = self.content.read();
+        let content_len = content.len() as u64;
+
+        if offset >= content_len {
+            return Ok(0);
+        }
+
+        let start = offset as usize;
+        let end = core::cmp::min(start + buffer.len(), content.len());
+        let bytes_to_read = end - start;
+
+        buffer[..bytes_to_read].copy_from_slice(&content[start..end]);
+        Ok(bytes_to_read)
+    }
+
+    /// Write to the inode at a given offset
+    pub fn write(&self, offset: u64, data: &[u8]) -> FsResult<usize> {
+        let mut content = self.content.write();
+        let required_len = (offset + data.len() as u64) as usize;
+
+        if content.len() < required_len {
+            content.resize(required_len, 0);
+        }
+
+        let start = offset as usize;
+        let end = start + data.len();
+        content[start..end].copy_from_slice(data);
+
+        Ok(data.len())
+    }
+
+    /// Update the size after writes
+    pub fn update_size(&mut self, new_size: u64) {
+        self.size = new_size;
+    }
+}
+
+/// Virtual File System interface for syscalls
+/// Provides a simplified interface for process syscalls
+pub struct VFS {
+    /// Reference to the underlying VFS manager
+    manager: &'static VfsManager,
+}
+
+impl VFS {
+    /// Create a new VFS wrapper
+    pub const fn new(manager: &'static VfsManager) -> Self {
+        Self { manager }
+    }
+
+    /// Open a file and return an Inode handle
+    ///
+    /// # Arguments
+    /// * `path` - Path to the file
+    /// * `flags` - Open flags (SyscallOpenFlags or compatible)
+    /// * `mode` - File creation mode (permissions)
+    pub fn open(&self, path: &str, flags: SyscallOpenFlags, mode: u32) -> FsResult<Inode> {
+        // Convert syscall flags to internal OpenFlags
+        let internal_flags = OpenFlags {
+            read: !flags.contains(SyscallOpenFlags::WRITE) || flags.contains(SyscallOpenFlags::RDWR),
+            write: flags.contains(SyscallOpenFlags::WRITE) || flags.contains(SyscallOpenFlags::RDWR),
+            create: flags.contains(SyscallOpenFlags::CREAT),
+            truncate: flags.contains(SyscallOpenFlags::TRUNC),
+            append: flags.contains(SyscallOpenFlags::APPEND),
+            exclusive: flags.contains(SyscallOpenFlags::EXCL),
+        };
+
+        // Resolve the path
+        let resolved_path = self.manager.resolve_path(path)?;
+        let mount_index = self.manager.find_mount_point(&resolved_path).ok_or(FsError::NotFound)?;
+
+        let mount_points = self.manager.mount_points.read();
+        let mount_point = &mount_points[mount_index];
+
+        // Get relative path for the filesystem
+        let relative_path = if mount_point.path == "/" {
+            &resolved_path
+        } else {
+            resolved_path.strip_prefix(&mount_point.path).unwrap_or(&resolved_path)
+        };
+
+        // Handle file creation
+        let inode_number = if internal_flags.create {
+            match mount_point.filesystem.open(relative_path, internal_flags) {
+                Ok(inode) => inode,
+                Err(FsError::NotFound) => {
+                    // Create the file
+                    let permissions = FilePermissions::from_octal(mode as u16);
+                    mount_point.filesystem.create(relative_path, permissions)?
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            mount_point.filesystem.open(relative_path, internal_flags)?
+        };
+
+        // Get file metadata
+        let metadata = mount_point.filesystem.metadata(inode_number)?;
+
+        // Calculate mode value (file type + permissions)
+        let file_type_bits = match metadata.file_type {
+            FileType::Regular => 0o100000,
+            FileType::Directory => 0o040000,
+            FileType::SymbolicLink => 0o120000,
+            FileType::CharacterDevice => 0o020000,
+            FileType::BlockDevice => 0o060000,
+            FileType::NamedPipe => 0o010000,
+            FileType::Socket => 0o140000,
+        };
+        let mode_value = file_type_bits | (metadata.permissions.to_octal() as u32);
+
+        // Read file content for RAM filesystem
+        let mut content = Vec::new();
+        if metadata.file_type == FileType::Regular && metadata.size > 0 {
+            content.resize(metadata.size as usize, 0);
+            let _ = mount_point.filesystem.read(inode_number, 0, &mut content);
+        }
+
+        Ok(Inode::with_content(
+            inode_number,
+            metadata.size,
+            mode_value,
+            metadata.file_type,
+            mount_index,
+            content,
+        ))
+    }
+
+    /// Get file status without opening
+    pub fn stat(&self, path: &str) -> FsResult<Inode> {
+        self.open(path, SyscallOpenFlags::READ, 0)
+    }
+
+    /// Create a directory
+    pub fn mkdir(&self, path: &str, mode: u32) -> FsResult<()> {
+        let permissions = FilePermissions::from_octal(mode as u16);
+        self.manager.mkdir(path, permissions)
+    }
+
+    /// Remove a file
+    pub fn unlink(&self, path: &str) -> FsResult<()> {
+        self.manager.unlink(path)
+    }
+
+    /// Remove a directory
+    pub fn rmdir(&self, path: &str) -> FsResult<()> {
+        self.manager.rmdir(path)
+    }
+
+    /// Get current working directory
+    pub fn getcwd(&self) -> String {
+        self.manager.getcwd()
+    }
+
+    /// Change current working directory
+    pub fn chdir(&self, path: &str) -> FsResult<()> {
+        self.manager.chdir(path)
+    }
 }
 
 /// File system trait that all filesystems must implement
@@ -796,7 +1050,16 @@ impl VfsManager {
 }
 
 lazy_static! {
-    static ref VFS: VfsManager = VfsManager::new();
+    /// Global VFS manager instance
+    static ref VFS_MANAGER: VfsManager = VfsManager::new();
+
+    /// Static VFS instance for syscalls
+    static ref SYSCALL_VFS: VFS = VFS::new(&VFS_MANAGER);
+}
+
+/// Get the global VFS instance for syscall interface
+pub fn get_vfs() -> &'static VFS {
+    &SYSCALL_VFS
 }
 
 /// Initialize the VFS subsystem
@@ -808,11 +1071,11 @@ pub fn init() -> FsResult<()> {
     let root_mounted = if let Ok(ext4_fs) = ext4::Ext4FileSystem::new(1) {
         // Mount EXT4 filesystem as root
         let ext4_box = Box::new(ext4_fs);
-        VFS.mount("/", ext4_box, MountFlags::default()).is_ok()
+        VFS_MANAGER.mount("/", ext4_box, MountFlags::default()).is_ok()
     } else if let Ok(fat32_fs) = fat32::Fat32FileSystem::new(1) {
         // Mount FAT32 filesystem as root
         let fat32_box = Box::new(fat32_fs);
-        VFS.mount("/", fat32_box, MountFlags::default()).is_ok()
+        VFS_MANAGER.mount("/", fat32_box, MountFlags::default()).is_ok()
     } else {
         false
     };
@@ -820,21 +1083,21 @@ pub fn init() -> FsResult<()> {
     // Fall back to RAM filesystem if no real filesystem found
     if !root_mounted {
         let root_fs = Box::new(ramfs::RamFs::new());
-        VFS.mount("/", root_fs, MountFlags::default())?;
+        VFS_MANAGER.mount("/", root_fs, MountFlags::default())?;
     }
 
     // Mount devfs at /dev
     let dev_fs = Box::new(devfs::DevFs::new());
-    VFS.mount("/dev", dev_fs, MountFlags::default())?;
+    VFS_MANAGER.mount("/dev", dev_fs, MountFlags::default())?;
 
     // Create standard directories (only if using RAM filesystem)
     if !root_mounted {
-        VFS.mkdir("/tmp", FilePermissions::from_octal(0o755))?;
-        VFS.mkdir("/proc", FilePermissions::from_octal(0o755))?;
-        VFS.mkdir("/sys", FilePermissions::from_octal(0o755))?;
-        VFS.mkdir("/home", FilePermissions::from_octal(0o755))?;
-        VFS.mkdir("/usr", FilePermissions::from_octal(0o755))?;
-        VFS.mkdir("/var", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/tmp", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/proc", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/sys", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/home", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/usr", FilePermissions::from_octal(0o755))?;
+        VFS_MANAGER.mkdir("/var", FilePermissions::from_octal(0o755))?;
     }
 
     Ok(())
@@ -861,19 +1124,19 @@ pub fn mount_filesystem(device_id: u32, mount_point: &str, fs_type: Option<FileS
         }
     };
 
-    VFS.mount(mount_point, filesystem, MountFlags::default())
+    VFS_MANAGER.mount(mount_point, filesystem, MountFlags::default())
 }
 
 /// Unmount a filesystem
 pub fn unmount_filesystem(mount_point: &str) -> FsResult<()> {
     // Flush all buffers for the filesystem before unmounting
     let _ = buffer::flush_all_buffers();
-    VFS.unmount(mount_point)
+    VFS_MANAGER.unmount(mount_point)
 }
 
 /// Get the global VFS manager
 pub fn vfs() -> &'static VfsManager {
-    &VFS
+    &VFS_MANAGER
 }
 
 /// Get current time in milliseconds

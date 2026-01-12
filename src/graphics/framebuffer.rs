@@ -1217,35 +1217,7 @@ mod tests {
 }
 //
 // Placeholder implementations for memory management functions
-// These would be implemented in the actual memory management module
-
-mod memory_stubs {
-    pub struct MemoryFlags;
-    
-    impl MemoryFlags {
-        pub const PRESENT: Self = MemoryFlags;
-        pub const WRITABLE: Self = MemoryFlags;
-        pub const NO_CACHE: Self = MemoryFlags;
-        pub const WRITE_COMBINING: Self = MemoryFlags;
-    }
-    
-    impl core::ops::BitOr for MemoryFlags {
-        type Output = Self;
-        fn bitor(self, _rhs: Self) -> Self::Output { MemoryFlags }
-    }
-    
-    pub fn map_physical_memory(_virt: usize, _phys: usize, _flags: MemoryFlags) -> Result<(), &'static str> {
-        // In production, this would map physical memory to virtual address space
-        Ok(())
-    }
-    
-    pub fn unmap_page(_addr: usize) -> Result<(), &'static str> {
-        // In production, this would unmap a virtual page
-        Ok(())
-    }
-}
-
-// Real GPU manager interface
+// GPU manager interface
 mod gpu_interface {
     use super::*;
     
@@ -1640,9 +1612,6 @@ mod gpu_interface {
         }
     }
 }
-
-// Re-export stubs for now - these would be actual imports in production
-use memory_stubs::*;
 
 // Make GPU manager available
 pub use gpu_interface::get_gpu_manager;

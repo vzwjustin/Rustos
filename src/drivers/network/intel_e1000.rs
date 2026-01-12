@@ -5,6 +5,7 @@
 
 use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, PowerState, WakeOnLanConfig};
 use crate::net::{NetworkError, NetworkAddress};
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ptr;
@@ -75,38 +76,8 @@ impl MacAddress {
     }
 }
 
-/// Network statistics
-#[derive(Debug, Clone, Default)]
-pub struct NetworkStats {
-    pub rx_packets: u64,
-    pub tx_packets: u64,
-    pub rx_bytes: u64,
-    pub tx_bytes: u64,
-    pub rx_errors: u64,
-    pub tx_errors: u64,
-    pub rx_dropped: u64,
-    pub tx_dropped: u64,
-}
-
-/// Network driver trait
-pub trait NetworkDriver {
-    fn name(&self) -> &str;
-    fn device_type(&self) -> DeviceType;
-    fn state(&self) -> DeviceState;
-    fn capabilities(&self) -> &DeviceCapabilities;
-    fn init(&mut self) -> Result<(), NetworkError>;
-    fn start(&mut self) -> Result<(), NetworkError>;
-    fn stop(&mut self) -> Result<(), NetworkError>;
-    fn send_packet(&mut self, packet: &[u8]) -> Result<(), NetworkError>;
-    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError>;
-    fn get_mac_address(&self) -> MacAddress;
-    fn set_mac_address(&mut self, mac: MacAddress) -> Result<(), NetworkError>;
-    fn get_link_status(&self) -> (bool, u32, bool);
-    fn get_statistics(&self) -> NetworkStats;
-    fn handle_interrupt(&mut self) -> Result<(), NetworkError>;
-    fn set_power_state(&mut self, state: PowerState) -> Result<(), NetworkError>;
-    fn configure_wol(&mut self, config: WakeOnLanConfig) -> Result<(), NetworkError>;
-}
+// Use NetworkDriver trait and types from parent module
+use super::{NetworkDriver, NetworkStats};
 
 /// Intel E1000 device information
 #[derive(Debug, Clone, Copy)]
@@ -915,7 +886,11 @@ impl IntelE1000Driver {
         }
 
         Ok(())
-    }et tipg = match self.device_info.map(|info| info.generation) {
+    }
+
+    /// Configure TIPG (Transmit Inter Packet Gap) register
+    fn configure_tipg(&mut self) -> Result<(), NetworkError> {
+        let tipg = match self.device_info.map(|info| info.generation) {
             Some(E1000Generation::E1000) => 0x602008, // 10/8/6 for copper
             _ => 0x602008, // Default values
         };
@@ -1111,7 +1086,7 @@ impl NetworkDriver for IntelE1000Driver {
         (link_up, self.current_speed, self.full_duplex)
     }
 
-    fn get_statistics(&self) -> NetworkStats {
+    fn get_stats(&self) -> NetworkStats {
         NetworkStats {
             rx_packets: self.stats.rx_packets,
             tx_packets: self.stats.tx_packets,
@@ -1162,190 +1137,6 @@ impl NetworkDriver for IntelE1000Driver {
         
         Ok(())
     }
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn device_type(&self) -> DeviceType {
-        DeviceType::Ethernet
-    }
-
-    fn mac_address(&self) -> MacAddress {
-        self.mac_address
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        self.capabilities.clone()
-    }
-
-    fn state(&self) -> DeviceState {
-        self.state
-    }
-
-    fn init(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Testing;
-
-        // Reset controller
-        self.reset_controller()?;
-
-        // Read MAC address
-        self.read_mac_address()?;
-
-        // Initialize subsystems
-        self.init_rx()?;
-        self.init_tx()?;
-
-        // Configure link
-        self.configure_link()?;
-
-        self.state = DeviceState::Down;
-        Ok(())
-    }
-
-    fn start(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Down {
-            return Err(NetworkError::InvalidState);
-        }
-
-        // Enable interrupts (simplified)
-        self.write_reg(E1000Reg::Ims, 0x1F6DC);
-
-        self.state = DeviceState::Up;
-        Ok(())
-    }
-
-    fn stop(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
-            return Err(NetworkError::InvalidState);
-        }
-
-        // Disable interrupts
-        self.write_reg(E1000Reg::Imc, 0xFFFFFFFF);
-
-        // Disable receiver and transmitter
-        self.write_reg(E1000Reg::Rctl, 0);
-        self.write_reg(E1000Reg::Tctl, 0);
-
-        self.state = DeviceState::Down;
-        Ok(())
-    }
-
-    fn reset(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Resetting;
-        self.reset_controller()?;
-        self.init()?;
-        Ok(())
-    }
-
-    fn send_packet(&mut self, data: &[u8]) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
-            return Err(NetworkError::InterfaceDown);
-        }
-
-        if data.len() > self.capabilities.max_packet_size as usize {
-            return Err(NetworkError::BufferTooSmall);
-        }
-
-        // In a real implementation, we would:
-        // 1. Get next available transmit descriptor
-        // 2. Set up DMA mapping for packet data
-        // 3. Configure descriptor with packet information
-        // 4. Ring doorbell to notify hardware
-
-        // Simulate successful transmission
-        self.stats.tx_packets += 1;
-        self.stats.tx_bytes += data.len() as u64;
-
-        Ok(())
-    }
-
-    fn receive_packet(&mut self) -> Option<Vec<u8>> {
-        if self.state != DeviceState::Up {
-            return None;
-        }
-
-        // In a real implementation, we would:
-        // 1. Check receive descriptor ring for completed packets
-        // 2. Process received data
-        // 3. Update receive statistics
-        // 4. Replenish receive buffers
-
-        // For simulation, return None (no packets available)
-        None
-    }
-
-    fn is_link_up(&self) -> bool {
-        let status = self.read_reg(E1000Reg::Status);
-        (status & E1000Status::LU.bits()) != 0
-    }
-
-    fn set_promiscuous(&mut self, enabled: bool) -> Result<(), NetworkError> {
-        let mut rctl = self.read_reg(E1000Reg::Rctl);
-
-        if enabled {
-            rctl |= E1000Rctl::UPE.bits() | E1000Rctl::MPE.bits();
-        } else {
-            rctl &= !(E1000Rctl::UPE.bits() | E1000Rctl::MPE.bits());
-        }
-
-        self.write_reg(E1000Reg::Rctl, rctl);
-        Ok(())
-    }
-
-    fn add_multicast(&mut self, _addr: MacAddress) -> Result<(), NetworkError> {
-        // In a real implementation, we would add the address to the multicast filter table
-        Ok(())
-    }
-
-    fn remove_multicast(&mut self, _addr: MacAddress) -> Result<(), NetworkError> {
-        // In a real implementation, we would remove the address from the multicast filter table
-        Ok(())
-    }
-
-    fn get_stats(&self) -> NetworkStats {
-        NetworkStats {
-            packets_sent: self.stats.tx_packets,
-            packets_received: self.stats.rx_packets,
-            bytes_sent: self.stats.tx_bytes,
-            bytes_received: self.stats.rx_bytes,
-            send_errors: self.stats.tx_errors,
-            receive_errors: self.stats.rx_errors,
-            dropped_packets: self.stats.tx_dropped + self.stats.rx_dropped,
-        }
-    }
-
-    fn set_mtu(&mut self, mtu: u16) -> Result<(), NetworkError> {
-        if mtu < 68 || mtu > 9000 {
-            return Err(NetworkError::InvalidPacket);
-        }
-        self.capabilities.mtu = mtu;
-        Ok(())
-    }
-
-    fn get_mtu(&self) -> u16 {
-        self.capabilities.mtu
-    }
-
-    fn handle_interrupt(&mut self) -> Result<(), NetworkError> {
-        // Read interrupt cause register
-        let icr = self.read_reg(E1000Reg::Icr);
-
-        // Handle different interrupt types
-        if (icr & 0x04) != 0 { // Link status change
-            self.stats.link_changes += 1;
-        }
-
-        if (icr & 0x80) != 0 { // Receive timer interrupt
-            // Process received packets
-            self.stats.rx_packets += 1; // Simplified
-        }
-
-        if (icr & 0x01) != 0 { // Transmit descriptor written back
-            // Process completed transmissions
-        }
-
-        Ok(())
-    }
 }
 
 /// Create Intel E1000 driver from PCI device information
@@ -1367,16 +1158,6 @@ pub fn create_intel_e1000_driver(
         irq,
     );
 
-    let capabilities = driver.extended_capabilities.clone();
-    
-    Some((Box::new(driver), capabilities))
-    // Find matching device in database
-    let device_info = INTEL_E1000_DEVICES.iter()
-        .find(|info| info.vendor_id == vendor_id && info.device_id == device_id)
-        .copied()?;
-
-    let name = format!("Intel {}", device_info.name);
-    let driver = IntelE1000Driver::new(name, device_info, base_addr, irq);
     let capabilities = driver.extended_capabilities.clone();
 
     Some((Box::new(driver), capabilities))

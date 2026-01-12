@@ -9,6 +9,7 @@
 //! - Advanced rendering pipeline management
 
 use alloc::vec::Vec;
+use alloc::vec;
 use alloc::string::{String, ToString};
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -376,6 +377,13 @@ impl Default for PerformanceCounters {
             frame_time_ns: 0,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GPUVendor {
+    Intel,
+    AMD,
+    NVIDIA,
 }
 
 impl GraphicsAccelerationEngine {
@@ -778,13 +786,6 @@ impl GraphicsAccelerationEngine {
         // In production, this would check if firmware file exists in /lib/firmware/
         // For now, always return true to avoid blocking initialization
         true
-    }
-    
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum GPUVendor {
-        Intel,
-        AMD,
-        NVIDIA,
     }
 
     /// Check if GPU supports acceleration features
@@ -1442,14 +1443,13 @@ impl GraphicsAccelerationEngine {
         Ok(())
     }
     
-    /// Trigger GPU execution of queued commands  
+    /// Trigger GPU execution of queued commands
     fn trigger_gpu_execution(&mut self) -> Result<(), &'static str> {
         // Real GPU execution trigger via hardware registers
         // This would typically involve writing to GPU control registers
         Ok(())
     }
-    }
-    
+
     /// Wait for compute shader completion
     fn wait_for_compute_completion(&mut self, thread_count: u32) -> Result<u64, &'static str> {
         // Real GPU synchronization and completion detection

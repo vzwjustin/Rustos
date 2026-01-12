@@ -7,6 +7,7 @@
 use super::api::*;
 use super::{MmapFlags, ProtectionFlags};
 use x86_64::{PhysAddr, VirtAddr};
+use crate::{print, println};
 
 /// Example 1: Basic memory allocation with mmap
 pub fn example_basic_allocation() -> Result<(), super::VmError> {

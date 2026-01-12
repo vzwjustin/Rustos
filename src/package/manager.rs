@@ -6,6 +6,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
+use alloc::format;
 use crate::package::{
     PackageResult, PackageError, PackageOperation, PackageManagerType,
     PackageInfo, PackageMetadata, PackageStatus, ExtractedPackage,

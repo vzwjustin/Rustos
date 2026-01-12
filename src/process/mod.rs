@@ -207,12 +207,103 @@ pub struct FileDescriptor {
     pub offset: u64,
 }
 
+impl FileDescriptor {
+    /// Create a new file descriptor from a VFS Inode
+    pub fn from_inode(inode: crate::fs::Inode, flags: u32) -> Self {
+        Self {
+            fd_type: FileDescriptorType::VfsFile { inode },
+            flags,
+            offset: 0,
+        }
+    }
+
+    /// Create a standard input descriptor
+    pub fn stdin() -> Self {
+        Self {
+            fd_type: FileDescriptorType::StandardInput,
+            flags: 0,
+            offset: 0,
+        }
+    }
+
+    /// Create a standard output descriptor
+    pub fn stdout() -> Self {
+        Self {
+            fd_type: FileDescriptorType::StandardOutput,
+            flags: 0,
+            offset: 0,
+        }
+    }
+
+    /// Create a standard error descriptor
+    pub fn stderr() -> Self {
+        Self {
+            fd_type: FileDescriptorType::StandardError,
+            flags: 0,
+            offset: 0,
+        }
+    }
+
+    /// Read from this file descriptor
+    pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::fs::FsError> {
+        match &self.fd_type {
+            FileDescriptorType::VfsFile { inode } => {
+                let bytes_read = inode.read(self.offset, buffer)?;
+                self.offset += bytes_read as u64;
+                Ok(bytes_read)
+            }
+            FileDescriptorType::StandardInput => {
+                // For stdin, read from keyboard buffer
+                Ok(0)
+            }
+            _ => Err(crate::fs::FsError::BadFileDescriptor),
+        }
+    }
+
+    /// Write to this file descriptor
+    pub fn write(&mut self, data: &[u8]) -> Result<usize, crate::fs::FsError> {
+        match &self.fd_type {
+            FileDescriptorType::VfsFile { inode } => {
+                let bytes_written = inode.write(self.offset, data)?;
+                self.offset += bytes_written as u64;
+                Ok(bytes_written)
+            }
+            FileDescriptorType::StandardOutput | FileDescriptorType::StandardError => {
+                // For stdout/stderr, write to serial console
+                for &byte in data {
+                    crate::serial_print!("{}", byte as char);
+                }
+                Ok(data.len())
+            }
+            _ => Err(crate::fs::FsError::BadFileDescriptor),
+        }
+    }
+
+    /// Get the VFS inode if this is a VFS file
+    pub fn inode(&self) -> Option<&crate::fs::Inode> {
+        match &self.fd_type {
+            FileDescriptorType::VfsFile { inode } => Some(inode),
+            _ => None,
+        }
+    }
+
+    /// Get current file offset
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Set file offset
+    pub fn set_offset(&mut self, offset: u64) {
+        self.offset = offset;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FileDescriptorType {
     StandardInput,
     StandardOutput,
     StandardError,
-    File { path: [u8; 256] },
+    VfsFile { inode: crate::fs::Inode },
     Socket { socket_id: u32 },
     Pipe { pipe_id: u32 },
 }

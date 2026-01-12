@@ -26,6 +26,15 @@ use spin::{RwLock, Mutex};
 use lazy_static::lazy_static;
 use core::fmt;
 
+/// Type alias for IPv4 address as a 4-byte array
+pub type Ipv4Address = [u8; 4];
+
+/// Type alias for MAC address as a 6-byte array
+pub type MacAddress = [u8; 6];
+
+/// Type alias for IPv6 address as a 16-byte array
+pub type Ipv6Address = [u8; 16];
+
 /// Network address types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NetworkAddress {
@@ -209,8 +218,6 @@ pub enum NetworkError {
     InvalidArgument,
     /// Hardware error
     HardwareError,
-    /// Operation timed out
-    Timeout,
     /// Invalid state
     InvalidState,
     /// Insufficient memory
@@ -237,6 +244,10 @@ impl fmt::Display for NetworkError {
             NetworkError::AddressInUse => write!(f, "Address already in use"),
             NetworkError::PermissionDenied => write!(f, "Permission denied"),
             NetworkError::InvalidArgument => write!(f, "Invalid argument"),
+            NetworkError::HardwareError => write!(f, "Hardware error"),
+            NetworkError::InvalidState => write!(f, "Invalid state"),
+            NetworkError::InsufficientMemory => write!(f, "Insufficient memory"),
+            NetworkError::BufferTooSmall => write!(f, "Buffer too small"),
         }
     }
 }
@@ -551,21 +562,6 @@ impl NetworkStack {
         }
         
         Ok(())
-    }
-
-    /// Check if address matches route with netmask
-    fn address_matches_route(&self, addr: &NetworkAddress, dest: &NetworkAddress, mask: &NetworkAddress) -> bool {
-        match (addr, dest, mask) {
-            (NetworkAddress::IPv4(a), NetworkAddress::IPv4(d), NetworkAddress::IPv4(m)) => {
-                for i in 0..4 {
-                    if (a[i] & m[i]) != (d[i] & m[i]) {
-                        return false;
-                    }
-                }
-                true
-            }
-            _ => false, // Simplified for now
-        }
     }
 
     /// Update ARP table with real address resolution

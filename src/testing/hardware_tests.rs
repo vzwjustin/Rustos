@@ -58,8 +58,9 @@ pub fn create_hardware_test_suite() -> TestSuite {
         setup: Some(setup_all_hardware_tests),
         teardown: Some(teardown_all_hardware_tests),
     }
-}//
- Setup and teardown functions
+}
+
+// Setup and teardown functions
 fn setup_all_hardware_tests() {
     // Initialize hardware testing environment
 }
