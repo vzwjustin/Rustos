@@ -224,6 +224,12 @@ pub enum NetworkError {
     InsufficientMemory,
     /// Buffer too small
     BufferTooSmall,
+    /// Protocol error
+    ProtocolError,
+    /// Not connected
+    NotConnected,
+    /// Not implemented
+    NotImplemented,
 }
 
 impl fmt::Display for NetworkError {
@@ -248,6 +254,9 @@ impl fmt::Display for NetworkError {
             NetworkError::InvalidState => write!(f, "Invalid state"),
             NetworkError::InsufficientMemory => write!(f, "Insufficient memory"),
             NetworkError::BufferTooSmall => write!(f, "Buffer too small"),
+            NetworkError::ProtocolError => write!(f, "Protocol error"),
+            NetworkError::NotConnected => write!(f, "Not connected"),
+            NetworkError::NotImplemented => write!(f, "Not implemented"),
         }
     }
 }
@@ -852,6 +861,13 @@ pub struct NetworkStats {
     pub total_rx_bytes: u64,
     pub total_tx_packets: u64,
     pub total_tx_bytes: u64,
+    pub packets_sent: u64,
+    pub packets_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub send_errors: u64,
+    pub receive_errors: u64,
+    pub dropped_packets: u64,
 }
 
 lazy_static! {
@@ -895,4 +911,32 @@ pub fn init() -> NetworkResult<()> {
 /// Get the global network stack
 pub fn network_stack() -> &'static NetworkStack {
     &NETWORK_STACK
+}
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Get interface statistics (stub implementation)
+/// Returns (rx_packets, tx_packets, rx_bytes, tx_bytes)
+pub fn get_interface_stats() -> Result<(u64, u64, u64, u64), &'static str> {
+    // Get stats from the default interface or aggregate all interfaces
+    let stack = network_stack();
+    let interfaces = stack.interfaces.read();
+
+    if interfaces.is_empty() {
+        return Ok((0, 0, 0, 0));
+    }
+
+    // Aggregate stats from all interfaces
+    let (mut total_rx_packets, mut total_tx_packets, mut total_rx_bytes, mut total_tx_bytes) = (0, 0, 0, 0);
+
+    for interface in interfaces.values() {
+        total_rx_packets += interface.stats.rx_packets;
+        total_tx_packets += interface.stats.tx_packets;
+        total_rx_bytes += interface.stats.rx_bytes;
+        total_tx_bytes += interface.stats.tx_bytes;
+    }
+
+    Ok((total_rx_packets, total_tx_packets, total_rx_bytes, total_tx_bytes))
 }

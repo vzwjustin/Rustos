@@ -413,7 +413,7 @@ impl SyscallDispatcher {
         };
 
         // Get file metadata to determine size
-        let file_size = match vfs.stat(fd) {
+        let file_size = match vfs.stat(&program_path) {
             Ok(metadata) => metadata.size as usize,
             Err(_) => {
                 let _ = vfs.close(fd);
@@ -625,14 +625,14 @@ impl SyscallDispatcher {
                     }
                 }
 
-                // Schedule a timer callback to wake the process
-                // The timer subsystem will call back when time expires
-                let pid_copy = current_pid;
-                crate::time::schedule_timer(sleep_time_ms * 1000, move || {
-                    // Wake up the sleeping process
-                    let pm = super::get_process_manager();
-                    let _ = pm.unblock_process(pid_copy);
-                });
+                // TODO: Schedule a timer callback to wake the process
+                // Note: Timer callback system needs update to support closures with captures
+                // For now, process will need to be woken by scheduler or other mechanism
+                // let pid_copy = current_pid;
+                // crate::time::schedule_timer(sleep_time_ms * 1000, move || {
+                //     let pm = super::get_process_manager();
+                //     let _ = pm.unblock_process(pid_copy);
+                // });
 
                 SyscallResult::Success(0)
             },
@@ -1272,10 +1272,8 @@ impl SyscallDispatcher {
         }
 
         // Set system time through time subsystem
-        match crate::time::set_system_time(new_time) {
-            Ok(()) => SyscallResult::Success(0),
-            Err(_) => SyscallResult::Error(SyscallError::IoError),
-        }
+        crate::time::set_system_time(new_time);
+        SyscallResult::Success(0)
     }
 
     // Process control
@@ -1556,20 +1554,23 @@ impl SyscallDispatcher {
         // - UTF-8 validation
         const PATH_MAX: usize = 4096;
         UserSpaceMemory::copy_string_from_user(user_ptr, PATH_MAX)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 
     /// Copy data from user space
     fn copy_from_user(&self, user_ptr: u64, buffer: &mut [u8]) -> Result<(), SyscallError> {
         use crate::memory::user_space::UserSpaceMemory;
-        
+
         UserSpaceMemory::copy_from_user(user_ptr, buffer)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 
     /// Copy data to user space
     fn copy_to_user(&self, user_ptr: u64, buffer: &[u8]) -> Result<(), SyscallError> {
         use crate::memory::user_space::UserSpaceMemory;
-        
+
         UserSpaceMemory::copy_to_user(user_ptr, buffer)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 }
 

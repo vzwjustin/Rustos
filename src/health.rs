@@ -4,7 +4,7 @@
 use core::sync::atomic::{AtomicU64, AtomicU32, AtomicBool, Ordering};
 use alloc::vec::Vec;
 use alloc::vec;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use spin::{Mutex, RwLock};
 use lazy_static::lazy_static;
 use crate::error::{KernelError, ErrorSeverity, ErrorContext, ERROR_MANAGER};
@@ -207,7 +207,7 @@ impl HealthMonitor {
 
     fn calculate_error_rate(&self) -> u32 {
         // Get error rate from error manager
-        if let Ok(manager) = ERROR_MANAGER.try_lock() {
+        if let Some(manager) = ERROR_MANAGER.try_lock() {
             let history = manager.get_error_history();
             let current_time = crate::time::get_system_time_ms();
             
@@ -319,7 +319,7 @@ impl HealthMonitor {
             alloc::format!("{}: {}", condition, value),
         );
 
-        if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+        if let Some(mut manager) = ERROR_MANAGER.try_lock() {
             let _ = manager.handle_error(error_context);
         }
     }

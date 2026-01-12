@@ -404,14 +404,14 @@ fn test_buffer_overflow_protection() -> TestResult {
     // Memory manager provides guard pages and stack protection
     use crate::memory::get_memory_manager;
     if let Some(memory_manager) = get_memory_manager() {
-        let _manager = memory_manager.lock();
+        let _manager = memory_manager;
         // Memory manager active means stack protection is available
         protections_active += 1;
     }
 
     // Test 2: Heap overflow detection - verify memory manager has protection
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         use crate::memory::MemoryZone;
         if let Some(_frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
             // Successful allocation means heap guards are in place

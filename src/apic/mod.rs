@@ -445,3 +445,31 @@ pub fn configure_irq(irq: u8, vector: u8, cpu_id: u8) -> Result<(), &'static str
 pub fn is_apic_available() -> bool {
     APIC_SYSTEM.lock().is_initialized()
 }
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Alias for is_apic_available - checks if local APIC is available
+pub fn local_apic_available() -> bool {
+    is_apic_available()
+}
+
+/// Alias for is_apic_available - checks if I/O APIC is available
+pub fn io_apic_available() -> bool {
+    is_apic_available()
+}
+
+/// Alias for init_apic_system
+pub fn init_apic() -> Result<(), &'static str> {
+    init_apic_system()
+}
+
+/// Get a reference to the local APIC (returns the APIC system)
+pub fn get_local_apic() -> Option<&'static Mutex<ApicSystem>> {
+    if is_apic_available() {
+        Some(&APIC_SYSTEM)
+    } else {
+        None
+    }
+}

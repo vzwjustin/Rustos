@@ -26,7 +26,7 @@ pub fn init_ipc_operations() {
 
 /// Get number of IPC operations performed
 pub fn get_operation_count() -> u64 {
-    IPC_OPS_COUNT.load(Ordering::Relaxed);
+    IPC_OPS_COUNT.load(Ordering::Relaxed)
 }
 
 /// Increment operation counter

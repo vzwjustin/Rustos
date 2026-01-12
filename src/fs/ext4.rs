@@ -317,7 +317,8 @@ impl Ext4FileSystem {
     /// Read group descriptor table
     fn read_group_descriptors(&mut self) -> FsResult<()> {
         let total_blocks = self.get_total_blocks();
-        let group_count = (total_blocks + self.blocks_per_group - 1) / self.blocks_per_group;
+        let blocks_per_group = self.blocks_per_group as u64;
+        let group_count = (total_blocks + blocks_per_group - 1) / blocks_per_group;
         
         // Group descriptor table starts at block 1 (or block 2 if block size is 1024)
         let gdt_block = if self.block_size == 1024 { 2 } else { 1 };

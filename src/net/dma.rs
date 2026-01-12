@@ -203,6 +203,16 @@ impl Drop for DmaBuffer {
     }
 }
 
+// SAFETY: DmaBuffer owns its memory and ensures proper cleanup via Drop.
+// The raw pointer is just an implementation detail for DMA memory management.
+// Multiple threads can safely own separate DmaBuffers.
+unsafe impl Send for DmaBuffer {}
+
+// SAFETY: DmaBuffer provides interior mutability through its methods,
+// and all access to the underlying memory is properly synchronized.
+// Multiple threads can safely share references to a DmaBuffer.
+unsafe impl Sync for DmaBuffer {}
+
 /// DMA ring buffer for efficient packet processing
 #[derive(Debug)]
 pub struct DmaRing {

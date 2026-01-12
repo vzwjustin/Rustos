@@ -1169,3 +1169,15 @@ pub fn link_binary_globally(
     linker.link_binary(binary_data, program_headers, base_address)
         .map_err(|_| "Failed to link binary")
 }
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement dynamic linker accessor
+/// Get a reference to the global dynamic linker
+/// Currently returns None if not initialized
+fn get_dynamic_linker() -> Option<DynamicLinker> {
+    let linker_guard = GLOBAL_DYNAMIC_LINKER.lock();
+    linker_guard.clone()
+}

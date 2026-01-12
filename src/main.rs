@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
 use core::panic::PanicInfo;
 use bootloader::{BootInfo, entry_point};
+use alloc::string::ToString;
 
 // Include compiler intrinsics for missing symbols
 mod intrinsics;
@@ -216,7 +218,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         boot_ui::report_warning("ACPI", "Bootloader v0.9.33 doesn't provide RSDP address - using manual detection");
         boot_ui::complete_stage(boot_ui::BootStage::AcpiInit);
         // Try ACPI initialization with manual detection
-        boot_ui::acpi_init_progress(None, physical_memory_offset)
+        boot_ui::acpi_init_progress(None, physical_memory_offset.as_u64())
     };
 
     // ========================================================================
@@ -746,7 +748,7 @@ fn modern_desktop_main_loop() -> ! {
                 }
                 drivers::InputEvent::MouseScroll { delta, x, y } => {
                     // Handle scroll wheel
-                    desktop::handle_scroll(x, y, delta as i32);
+                    desktop::handle_scroll(x as i32, y as i32, delta as i32);
                 }
             }
         }
@@ -1034,11 +1036,7 @@ fn panic(info: &PanicInfo) -> ! {
         "unknown location".to_string()
     };
     
-    let message = if let Some(msg) = info.message() {
-        alloc::format!("{}", msg)
-    } else {
-        "Kernel panic occurred".to_string()
-    };
+    let message = alloc::format!("{}", info.message());
     
     let error_context = ErrorContext::new(
         KernelError::System(SystemError::InternalError),
@@ -1048,7 +1046,7 @@ fn panic(info: &PanicInfo) -> ! {
     );
     
     // Try to handle the fatal error gracefully
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         let _ = manager.handle_error(error_context);
     } else {
         // Fallback if error manager is not available

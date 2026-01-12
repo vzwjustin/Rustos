@@ -800,3 +800,30 @@ pub fn get_pci_stats() -> PciStats {
 pub fn init() -> Result<(), &'static str> {
     init_pci()
 }
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Alias for scan_devices - scans the PCI bus
+pub fn scan_pci_bus() -> Result<Vec<PciDevice>, &'static str> {
+    scan_devices()
+}
+
+/// Read device configuration (returns the device itself)
+pub fn read_device_config(device: &PciDevice) -> Result<PciDevice, &'static str> {
+    // Return a clone of the device as its "config"
+    Ok(device.clone())
+}
+
+/// Classify a PCI device (returns its class code)
+pub fn classify_device(device: &PciDevice) -> Result<PciClass, &'static str> {
+    Ok(device.class_code.clone())
+}
+
+/// Load device driver (stub implementation)
+pub fn load_device_driver(device: &PciDevice) -> Result<(), &'static str> {
+    let _ = device;
+    // TODO: Implement actual driver loading
+    Err("Driver loading not yet implemented")
+}

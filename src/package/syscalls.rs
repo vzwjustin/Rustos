@@ -2,7 +2,7 @@
 //!
 //! This module provides syscall interface for userspace package management operations.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use crate::package::{PackageManager, PackageManagerType, PackageOperation, PackageResult};
 
 /// Package management syscall numbers

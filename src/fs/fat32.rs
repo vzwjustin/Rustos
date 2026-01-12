@@ -537,7 +537,7 @@ impl Fat32FileSystem {
 
             for entry in entries {
                 if entry.name.to_lowercase() == component.to_lowercase() {
-                    if entry.file_type != FileType::Directory && component != components.last().unwrap() {
+                    if entry.file_type != FileType::Directory && component != *components.last().unwrap() {
                         return Err(FsError::NotADirectory);
                     }
                     current_cluster = entry.inode as u32;

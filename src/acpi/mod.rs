@@ -405,6 +405,7 @@ fn checksum_bytes(bytes: &[u8]) -> bool {
 }
 
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 struct SdtHeader {
     signature: [u8; 4],
     length: u32,
@@ -973,4 +974,38 @@ pub fn get_table_address(signature: &[u8; 4]) -> Result<usize, &'static str> {
         .ok_or("Failed to map ACPI table virtual address")?;
 
     Ok(virt_addr)
+}
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Enumerate ACPI tables (alias for enumerate_system_description_tables)
+pub fn enumerate_tables() -> Result<AcpiTables, &'static str> {
+    enumerate_system_description_tables()
+}
+
+/// Enumerate ACPI devices (stub implementation)
+pub fn enumerate_devices() -> Result<Vec<AcpiDevice>, &'static str> {
+    // TODO: Implement device enumeration from ACPI namespace
+    Ok(Vec::new())
+}
+
+/// Stub structure for ACPI device enumeration
+#[derive(Debug, Clone)]
+pub struct AcpiDevice {
+    pub name: alloc::string::String,
+    pub hid: Option<alloc::string::String>,
+    pub uid: Option<u32>,
+}
+
+/// Check if power management is available via ACPI
+pub fn power_management_available() -> bool {
+    // Check if FADT exists, which contains power management information
+    fadt().is_some()
+}
+
+/// Check if ACPI is available and initialized
+pub fn acpi_available() -> bool {
+    is_initialized()
 }

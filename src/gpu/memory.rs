@@ -901,9 +901,9 @@ impl GPUMemoryManager {
             if !gpu_base.is_null() {
                 // Configure GGTT entry for this allocation
                 let ggtt_base = gpu_base.add(0x100000 / 4); // GGTT at offset 0x100000
-                let entry_index = (virt_addr - 0xFE000000) / 4096; // Page index
+                let entry_index = ((virt_addr - 0xFE000000) / 4096) as usize; // Page index
                 let pages = (size + 4095) / 4096;
-                
+
                 for i in 0..pages {
                     let phys_addr = self.virt_to_phys(virt_addr + i as u64 * 4096)?;
                     let ggtt_entry = (phys_addr & 0xFFFFF000) | 0x1; // Valid bit
@@ -926,9 +926,9 @@ impl GPUMemoryManager {
             if !gpu_base.is_null() {
                 // Configure page table entries for this allocation
                 let pt_base = gpu_base.add(0x200000 / 4); // Page table at offset 0x200000
-                let entry_index = (virt_addr - 0xFE000000) / 4096;
+                let entry_index = ((virt_addr - 0xFE000000) / 4096) as usize;
                 let pages = (size + 4095) / 4096;
-                
+
                 for i in 0..pages {
                     let phys_addr = self.virt_to_phys(virt_addr + i as u64 * 4096)?;
                     let pt_entry = (phys_addr & 0xFFFFF000) | 0x3; // Valid | Readable | Writable

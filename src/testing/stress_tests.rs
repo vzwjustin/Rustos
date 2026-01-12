@@ -323,13 +323,13 @@ fn test_memory_pressure() -> TestResult {
 
         // Get initial memory statistics
         let initial_stats = {
-            let manager = memory_manager.lock();
+            let manager = memory_manager;
             manager.get_zone_stats()
         };
 
         // Allocate memory frames to create pressure
         for i in 0..500 { // Reduced for real hardware
-            let mut manager = memory_manager.lock();
+            let manager = memory_manager;
             
             // Try different zones to test zone management
             let zone = match i % 3 {
@@ -359,7 +359,7 @@ fn test_memory_pressure() -> TestResult {
 
         // Free remaining allocations
         {
-            let mut manager = memory_manager.lock();
+            let manager = memory_manager;
             for (frame, zone) in allocated_frames {
                 manager.deallocate_frame(frame, zone);
             }
@@ -370,7 +370,7 @@ fn test_memory_pressure() -> TestResult {
 
         // Get final memory statistics
         let final_stats = {
-            let manager = memory_manager.lock();
+            let manager = memory_manager;
             manager.get_zone_stats()
         };
 

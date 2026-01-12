@@ -322,7 +322,7 @@ impl BenchmarkSuite {
                 // Use real memory management system
                 use crate::memory::{get_memory_manager, MemoryZone};
                 if let Some(memory_manager) = get_memory_manager() {
-                    let mut manager = memory_manager.lock();
+                    let manager = memory_manager;
                     if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
                         manager.deallocate_frame(frame, MemoryZone::Normal);
                     }
@@ -370,7 +370,7 @@ impl BenchmarkSuite {
                     // Use real memory management system for throughput testing
                     use crate::memory::{get_memory_manager, MemoryZone};
                     if let Some(memory_manager) = get_memory_manager() {
-                        let mut manager = memory_manager.lock();
+                        let manager = memory_manager;
                         if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
                             manager.deallocate_frame(frame, MemoryZone::Normal);
                         }

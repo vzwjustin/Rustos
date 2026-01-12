@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 use crate::memory::PAGE_SIZE;
 
 mod types;
-mod parser;
+pub mod parser;
 mod loader;
 
 #[cfg(test)]

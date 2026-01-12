@@ -18,7 +18,7 @@ pub fn init_socket_operations() {
 
 /// Get number of socket operations performed
 pub fn get_operation_count() -> u64 {
-    SOCKET_OPS_COUNT.load(Ordering::Relaxed);
+    SOCKET_OPS_COUNT.load(Ordering::Relaxed)
 }
 
 /// Increment operation counter

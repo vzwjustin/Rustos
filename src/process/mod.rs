@@ -34,6 +34,10 @@ pub enum ProcessState {
     Running,
     /// Process is blocked waiting for I/O or resources
     Blocked,
+    /// Process is sleeping
+    Sleeping,
+    /// Process has terminated
+    Terminated,
     /// Process has terminated but PCB still exists (waiting for parent to collect exit status)
     Zombie,
     /// Process has been completely cleaned up

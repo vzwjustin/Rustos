@@ -480,7 +480,7 @@ fn create_system_load() {
     // Create some memory allocation activity using real memory manager
     use crate::memory::{get_memory_manager, MemoryZone};
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
             manager.deallocate_frame(frame, MemoryZone::Normal);
         }
@@ -589,7 +589,7 @@ fn measure_current_performance() -> BTreeMap<String, f64> {
     let mem_start = crate::performance_monitor::read_tsc();
     use crate::memory::{get_memory_manager, MemoryZone};
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         let frame = manager.allocate_frame_in_zone(MemoryZone::Normal);
         if let Some(f) = frame {
             manager.deallocate_frame(f);

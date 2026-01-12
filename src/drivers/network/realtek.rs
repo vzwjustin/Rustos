@@ -113,17 +113,14 @@ impl RealtekDriver {
         irq: u8,
     ) -> Self {
         let mut capabilities = DeviceCapabilities::default();
-        capabilities.mtu = 1500;
-        capabilities.link_speed = device_info.max_speed_mbps;
-        capabilities.full_duplex = true;
-
-        if device_info.supports_jumbo {
-            capabilities.jumbo_frames = true;
-            capabilities.max_packet_size = 9000;
-        }
+        capabilities.max_mtu = if device_info.supports_jumbo { 9000 } else { 1500 };
+        capabilities.jumbo_frames = device_info.supports_jumbo;
+        capabilities.hw_checksum = true;
+        capabilities.scatter_gather = true;
+        capabilities.vlan = true;
 
         let mut extended_capabilities = ExtendedNetworkCapabilities::default();
-        extended_capabilities.base = capabilities.clone();
+        extended_capabilities.base = capabilities;
         extended_capabilities.max_bandwidth_mbps = device_info.max_speed_mbps;
         extended_capabilities.wake_on_lan = device_info.supports_wol;
         extended_capabilities.pxe_boot = true;
@@ -131,7 +128,7 @@ impl RealtekDriver {
         Self {
             name,
             device_info: Some(device_info),
-            state: DeviceState::Down,
+            state: DeviceState::Stopped,
             capabilities,
             extended_capabilities,
             stats: EnhancedNetworkStats::default(),
@@ -310,8 +307,8 @@ impl NetworkDriver for RealtekDriver {
         self.mac_address
     }
 
-    fn capabilities(&self) -> DeviceCapabilities {
-        self.capabilities.clone()
+    fn capabilities(&self) -> &DeviceCapabilities {
+        &self.capabilities
     }
 
     fn state(&self) -> DeviceState {
@@ -319,7 +316,7 @@ impl NetworkDriver for RealtekDriver {
     }
 
     fn init(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Testing;
+        self.state = DeviceState::Initializing;
 
         // Read MAC address
         self.read_mac_address()?;
@@ -337,22 +334,22 @@ impl NetworkDriver for RealtekDriver {
             }
         }
 
-        self.state = DeviceState::Down;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn start(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Down {
+        if self.state != DeviceState::Stopped {
             return Err(NetworkError::InvalidState);
         }
 
         // Enable device-specific features
-        self.state = DeviceState::Up;
+        self.state = DeviceState::Running;
         Ok(())
     }
 
     fn stop(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
+        if self.state != DeviceState::Running {
             return Err(NetworkError::InvalidState);
         }
 
@@ -366,22 +363,22 @@ impl NetworkDriver for RealtekDriver {
             }
         }
 
-        self.state = DeviceState::Down;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Resetting;
+        self.state = DeviceState::Initializing;
         self.init()?;
         Ok(())
     }
 
     fn send_packet(&mut self, data: &[u8]) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
-            return Err(NetworkError::InterfaceDown);
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::InvalidState);
         }
 
-        if data.len() > self.capabilities.max_packet_size as usize {
+        if data.len() > self.capabilities.max_mtu as usize {
             return Err(NetworkError::BufferTooSmall);
         }
 
@@ -405,22 +402,24 @@ impl NetworkDriver for RealtekDriver {
         Ok(())
     }
 
-    fn receive_packet(&mut self) -> Option<Vec<u8>> {
-        if self.state != DeviceState::Up {
-            return None;
+    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError> {
+        if self.state != DeviceState::Running {
+            return Ok(None);
         }
 
         // Real hardware packet reception
-        match self.device_info.map(|info| info.series) {
+        let packet = match self.device_info.map(|info| info.series) {
             Some(RealtekSeries::Rtl8139) => {
                 self.rtl8139_receive_packet()
             }
-            Some(RealtekSeries::Rtl8169) | Some(RealtekSeries::Rtl8168) | 
+            Some(RealtekSeries::Rtl8169) | Some(RealtekSeries::Rtl8168) |
             Some(RealtekSeries::Rtl8111) | Some(RealtekSeries::Rtl8125) => {
                 self.rtl8169_receive_packet()
             }
             None => None,
-        }
+        };
+
+        Ok(packet)
     }
 
     fn is_link_up(&self) -> bool {
@@ -431,6 +430,32 @@ impl NetworkDriver for RealtekDriver {
             }
             _ => {
                 (self.read_reg8(0x6C) & 0x02) != 0 // PHY status
+            }
+        }
+    }
+
+    fn get_link_status(&self) -> (bool, u32, bool) {
+        // Returns (link_up, speed_mbps, full_duplex)
+        let link_up = self.is_link_up();
+
+        if !link_up {
+            return (false, 0, false);
+        }
+
+        // Detect link speed and duplex from registers
+        match self.device_info.map(|info| info.series) {
+            Some(RealtekSeries::Rtl8139) => {
+                // RTL8139 is fixed at 100Mbps full duplex when link is up
+                (true, 100, true)
+            }
+            _ => {
+                // RTL8169/8168 - read PHY status
+                let phy_status = self.read_reg8(0x6C);
+                let speed = if (phy_status & 0x10) != 0 { 1000 }
+                           else if (phy_status & 0x08) != 0 { 100 }
+                           else { 10 };
+                let full_duplex = (phy_status & 0x01) != 0;
+                (true, speed, full_duplex)
             }
         }
     }
@@ -486,12 +511,12 @@ impl NetworkDriver for RealtekDriver {
         if mtu < 68 || mtu > 9000 {
             return Err(NetworkError::InvalidPacket);
         }
-        self.capabilities.mtu = mtu;
+        self.capabilities.max_mtu = mtu;
         Ok(())
     }
 
     fn get_mtu(&self) -> u16 {
-        self.capabilities.mtu
+        self.capabilities.max_mtu
     }
 
     fn handle_interrupt(&mut self) -> Result<(), NetworkError> {
@@ -543,7 +568,7 @@ impl RealtekDriver {
         }
         
         if !descriptor_found {
-            return Err(NetworkError::DeviceBusy);
+            return Err(NetworkError::Busy);
         }
 
         // Copy packet data to transmit buffer
@@ -577,26 +602,26 @@ impl RealtekDriver {
         // Check if descriptor is available
         let desc_base = 0x20; // Transmit descriptor base address
         let desc_addr = desc_base + tx_desc_idx * 16; // Each descriptor is 16 bytes
-        let desc_status = self.read_reg32(desc_addr);
+        let desc_status = self.read_reg32(desc_addr as u16);
         
         if desc_status & 0x80000000 == 0 { // OWN bit not set, descriptor busy
-            return Err(NetworkError::DeviceBusy);
+            return Err(NetworkError::Busy);
         }
         
         // Set up transmit descriptor
         let buffer_addr = desc_addr + 8; // Buffer address offset
         unsafe {
             // In real hardware, this would set up DMA buffer
-            let tx_buffer = (self.base_addr + 0x1000 + tx_desc_idx * 2048) as *mut u8;
+            let tx_buffer = (self.base_addr + 0x1000 + tx_desc_idx as u64 * 2048) as *mut u8;
             core::ptr::copy_nonoverlapping(data.as_ptr(), tx_buffer, data.len());
-            
+
             // Set buffer address in descriptor
-            self.write_reg32(buffer_addr, (self.base_addr + 0x1000 + tx_desc_idx * 2048) as u32);
+            self.write_reg32(buffer_addr as u16, (self.base_addr + 0x1000 + tx_desc_idx as u64 * 2048) as u32);
         }
-        
+
         // Set descriptor control - packet length and flags
         let desc_control = data.len() as u32 | 0xC0000000; // Length + FS + LS + OWN
-        self.write_reg32(desc_addr, desc_control);
+        self.write_reg32(desc_addr as u16, desc_control);
         
         // Advance to next descriptor
         tx_desc_idx = (tx_desc_idx + 1) % 4;
@@ -676,22 +701,22 @@ impl RealtekDriver {
         let desc_addr = desc_base + rx_desc_idx * 16;
         
         // Check descriptor status
-        let desc_status = self.read_reg32(desc_addr);
+        let desc_status = self.read_reg32(desc_addr as u16);
         if desc_status & 0x80000000 != 0 { // OWN bit set, no packet
             return None;
         }
-        
+
         // Extract packet information
         let packet_len = (desc_status & 0x3FFF) as usize; // Length field
         if packet_len < 64 || packet_len > 1518 {
             // Reset descriptor and continue
-            self.write_reg32(desc_addr, 0x80000000 | 2048); // Reset with buffer size
+            self.write_reg32(desc_addr as u16, 0x80000000 | 2048); // Reset with buffer size
             return None;
         }
-        
+
         unsafe {
             // Read packet from buffer
-            let buffer_addr = self.read_reg32(desc_addr + 8) as u64;
+            let buffer_addr = self.read_reg32((desc_addr + 8) as u16) as u64;
             let packet_ptr = buffer_addr as *const u8;
             
             let mut packet_data = Vec::with_capacity(packet_len);
@@ -701,10 +726,10 @@ impl RealtekDriver {
                 packet_data.as_mut_ptr(),
                 packet_len - 4
             );
-            
+
             // Reset descriptor for next packet
-            self.write_reg32(desc_addr, 0x80000000 | 2048); // OWN + buffer size
-            
+            self.write_reg32(desc_addr as u16, 0x80000000 | 2048); // OWN + buffer size
+
             // Advance to next descriptor
             rx_desc_idx = (rx_desc_idx + 1) % 4;
             self.rx_desc_index = Some(rx_desc_idx);

@@ -281,3 +281,15 @@ mod tests {
         assert_eq!(bytes, 0);
     }
 }
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement I/O statistics collection
+/// Get I/O statistics for monitoring
+/// Currently returns nothing - needs proper statistics gathering
+pub fn get_io_statistics() {
+    // TODO: Return aggregated I/O statistics across all schedulers
+    // For now, this is a no-op
+}

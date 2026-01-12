@@ -533,7 +533,7 @@ impl NvmeDriver {
         self.write_reg(NvmeReg::Cc, cc as u64);
 
         // Set up admin queues (simplified - would need real DMA memory)
-        self.write_reg(NvmeReg::Aqa, ((self.max_queue_entries - 1) << 16) | (self.max_queue_entries - 1));
+        self.write_reg(NvmeReg::Aqa, (((self.max_queue_entries - 1) << 16) | (self.max_queue_entries - 1)) as u64);
 
         // Enable controller
         cc |= NvmeCc::EN.bits();
@@ -677,7 +677,7 @@ impl NvmeDriver {
         
         // 3. Ring submission queue doorbell
         let doorbell_offset = 0x1000 + (0 * 2 * (4 << self.doorbell_stride)); // Queue 0 submission doorbell
-        self.write_reg(doorbell_offset, self.current_sq_tail as u32);
+        self.write_reg(doorbell_offset as u32, self.current_sq_tail as u32);
         
         // 4. Wait for completion queue entry
         let mut timeout = 1000000; // Timeout counter
@@ -714,7 +714,7 @@ impl NvmeDriver {
         
         // 5. Ring completion queue doorbell
         let cq_doorbell_offset = 0x1000 + (0 * 2 + 1) * (4 << self.doorbell_stride); // Queue 0 completion doorbell
-        self.write_reg(cq_doorbell_offset, self.current_cq_head as u32);
+        self.write_reg(cq_doorbell_offset as u32, self.current_cq_head as u32);
         
         // Update statistics
         match opcode {

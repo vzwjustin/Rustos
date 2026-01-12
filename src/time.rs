@@ -1375,6 +1375,19 @@ pub fn test_timer_accuracy() -> Result<(), &'static str> {
             crate::println!("Warning: TSC calibration may be inaccurate");
         }
     }
-    
+
     Ok(())
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement HPET detection
+/// Check if High Precision Event Timer is available
+/// Currently returns false - needs ACPI table parsing for HPET
+pub fn hpet_available() -> bool {
+    // TODO: Check ACPI tables for HPET presence
+    // TODO: Verify HPET base address is valid
+    false
 }

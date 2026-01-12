@@ -4,6 +4,7 @@
 //! It includes the IDT setup, exception handlers, and hardware interrupt management.
 
 use core::{fmt, ptr};
+use alloc::string::ToString;
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin::Mutex;
@@ -266,7 +267,7 @@ extern "x86-interrupt" fn double_fault_handler(
     );
     
     // Try to handle the fatal error gracefully
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         let _ = manager.handle_error(error_context);
     } else {
         // Fallback if error manager is not available
@@ -330,7 +331,7 @@ extern "x86-interrupt" fn page_fault_handler(
         alloc::format!("Unrecoverable page fault at address {:?}", fault_address),
     );
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             // Critical error handling failed - this is very bad
             crate::serial_println!("CRITICAL: Page fault recovery failed completely");
@@ -363,7 +364,7 @@ extern "x86-interrupt" fn divide_error_handler(stack_frame: InterruptStackFrame)
         alloc::format!("Divide by zero at {:?}", stack_frame.instruction_pointer),
     ).with_recovery(RecoveryAction::Isolate);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             // Error handling failed - terminate current process
             crate::serial_println!("Terminating process due to divide by zero");
@@ -392,7 +393,7 @@ extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFram
         alloc::format!("Invalid opcode at {:?}", stack_frame.instruction_pointer),
     ).with_recovery(RecoveryAction::Isolate);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("Terminating process due to invalid opcode");
             terminate_current_process("Invalid opcode exception");
@@ -420,7 +421,7 @@ extern "x86-interrupt" fn general_protection_fault_handler(
         alloc::format!("General protection fault with error code: {}", error_code),
     ).with_recovery(RecoveryAction::Isolate);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("CRITICAL: GPF recovery failed - system may be compromised");
             // Isolate and terminate the compromised process
@@ -452,7 +453,7 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
         alloc::format!("Stack segment fault with error code: {}", error_code),
     ).with_recovery(RecoveryAction::Isolate);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("CRITICAL: Stack fault recovery failed");
             // Stack is corrupted, terminate process immediately
@@ -486,7 +487,7 @@ extern "x86-interrupt" fn segment_not_present_handler(
         alloc::format!("Segment not present - error code: 0x{:x} at {:?}", error_code, stack_frame.instruction_pointer),
     ).with_recovery(RecoveryAction::Retry);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("Segment fault recovery failed - terminating process");
             terminate_current_process("Segment not present fault");
@@ -528,7 +529,7 @@ extern "x86-interrupt" fn invalid_tss_handler(
         alloc::format!("Invalid TSS with error code: {}", error_code),
     ).with_recovery(RecoveryAction::Restart);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("CRITICAL: TSS recovery failed - system unstable");
             loop {
@@ -557,7 +558,7 @@ extern "x86-interrupt" fn virtualization_handler(_stack_frame: InterruptStackFra
         "Virtualization exception occurred".to_string(),
     ).with_recovery(RecoveryAction::None);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         let _ = manager.handle_error(error_context);
     } else {
         crate::serial_println!("WARNING: Virtualization exception - error manager unavailable");
@@ -581,7 +582,7 @@ extern "x86-interrupt" fn alignment_check_handler(
         alloc::format!("Alignment check exception with error code: {}", error_code),
     ).with_recovery(RecoveryAction::Isolate);
     
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         if let Err(_) = manager.handle_error(error_context) {
             crate::serial_println!("Alignment check recovery failed - terminating process");
             terminate_current_process("Alignment check exception");
@@ -600,10 +601,8 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     // Call the time management system
     crate::time::timer_tick();
 
-    // Process scheduled timers with error handling
-    if let Err(_e) = crate::time::process_scheduled_timers() {
-        // Timer processing failed, continue but log the issue
-    }
+    // Process scheduled timers
+    crate::time::process_scheduled_timers();
 
     // Send EOI with proper error handling
     unsafe {
@@ -753,14 +752,13 @@ fn attempt_swap_in_page(fault_address: x86_64::VirtAddr) -> Result<(), &'static 
     
     // Step 1: Use the existing memory manager's swap-in functionality
     // The memory manager already has a handle_swap_in method we can use
-    let manager = memory_manager.lock();
-    
+
     // Find the region containing this address
-    let region = manager.find_region(fault_address)
+    let region = memory_manager.find_region(fault_address)
         .ok_or("No memory region found for fault address")?;
-    
+
     // Use the existing swap-in handler
-    manager.handle_swap_in(fault_address, &region)
+    memory_manager.handle_swap_in(fault_address, &region)
         .map_err(|e| match e {
             crate::memory::MemoryError::OutOfMemory => "Out of memory during swap-in",
             crate::memory::MemoryError::MappingFailed => "Failed to map swapped page",
@@ -892,9 +890,43 @@ pub fn test_interrupts() {
 
 /// Get total interrupt count for health monitoring
 pub fn get_interrupt_count() -> u64 {
-    TIMER_COUNT.load(Ordering::Relaxed) + 
-    KEYBOARD_COUNT.load(Ordering::Relaxed) + 
-    EXCEPTION_COUNT.load(Ordering::Relaxed) + 
-    PAGE_FAULT_COUNT.load(Ordering::Relaxed) + 
+    TIMER_COUNT.load(Ordering::Relaxed) +
+    KEYBOARD_COUNT.load(Ordering::Relaxed) +
+    EXCEPTION_COUNT.load(Ordering::Relaxed) +
+    PAGE_FAULT_COUNT.load(Ordering::Relaxed) +
     SPURIOUS_COUNT.load(Ordering::Relaxed)
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement PIC initialization
+/// Initialize the legacy Programmable Interrupt Controller
+/// Currently does nothing - the PICS static is already initialized in init()
+pub fn init_pic() {
+    // The PIC is already initialized via the PICS static and init() function
+    // This stub exists for compatibility with code expecting explicit init_pic() call
+    unsafe {
+        PICS.lock().initialize();
+    }
+}
+
+/// TODO: Consider using x86_64 crate's are_enabled function
+/// Check if interrupts are currently enabled
+/// Returns true if the interrupt flag (IF) is set in RFLAGS
+pub fn interrupts_enabled() -> bool {
+    x86_64::instructions::interrupts::are_enabled()
+}
+
+/// TODO: Consider using x86_64 crate's disable function
+/// Disable interrupts by clearing the interrupt flag (IF) in RFLAGS
+pub fn disable_interrupts() {
+    x86_64::instructions::interrupts::disable();
+}
+
+/// TODO: Consider using x86_64 crate's enable function
+/// Enable interrupts by setting the interrupt flag (IF) in RFLAGS
+pub fn enable_interrupts() {
+    x86_64::instructions::interrupts::enable();
 }

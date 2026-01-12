@@ -6,7 +6,7 @@
 
 use crate::vga_buffer::{Color, VGA_WRITER};
 use crate::{print, println};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::format;
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 
