@@ -1345,7 +1345,7 @@ impl PageTableManager {
             
             // Zero the page for security
             unsafe {
-                let page_ptr = (self.physical_memory_offset + frame.start_address().as_u64()).as_mut_ptr();
+                let page_ptr: *mut u8 = (self.physical_memory_offset + frame.start_address().as_u64()).as_mut_ptr();
                 core::ptr::write_bytes(page_ptr, 0, PAGE_SIZE);
             }
             
@@ -1380,8 +1380,8 @@ impl PageTableManager {
         
         // Copy content from old page to new page
         unsafe {
-            let old_ptr = (self.physical_memory_offset + old_phys_addr.as_u64()).as_ptr();
-            let new_ptr = (self.physical_memory_offset + new_frame.start_address().as_u64()).as_mut_ptr();
+            let old_ptr: *const u8 = (self.physical_memory_offset + old_phys_addr.as_u64()).as_ptr();
+            let new_ptr: *mut u8 = (self.physical_memory_offset + new_frame.start_address().as_u64()).as_mut_ptr();
             core::ptr::copy_nonoverlapping(old_ptr, new_ptr, PAGE_SIZE);
         }
         
@@ -1415,7 +1415,7 @@ impl PageTableManager {
             
             // Zero the page for security
             unsafe {
-                let page_ptr = (self.physical_memory_offset + frame.start_address().as_u64()).as_mut_ptr();
+                let page_ptr: *mut u8 = (self.physical_memory_offset + frame.start_address().as_u64()).as_mut_ptr();
                 core::ptr::write_bytes(page_ptr, 0, PAGE_SIZE);
             }
             
@@ -1448,15 +1448,15 @@ impl PageTableManager {
         flags: PageTableFlags,
         frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     ) -> Result<(), &'static str> {
-        let start_page = Page::containing_address(src_start);
-        let end_page = Page::containing_address(src_start + src_size - 1u64);
+        let start_page: Page<Size4KiB> = Page::containing_address(src_start);
+        let end_page: Page<Size4KiB> = Page::containing_address(src_start + src_size - 1u64);
 
         let dst_offset = dst_start.as_u64() - src_start.as_u64();
 
         for page in Page::range_inclusive(start_page, end_page) {
             // Get physical frame from source page
             if let Some(phys_addr) = self.translate_addr(page.start_address()) {
-                let frame = PhysFrame::containing_address(phys_addr);
+                let frame: PhysFrame<Size4KiB> = PhysFrame::containing_address(phys_addr);
 
                 // Calculate destination page
                 let dst_page_addr = VirtAddr::new(page.start_address().as_u64() + dst_offset);
@@ -1821,15 +1821,7 @@ impl MemoryManager {
 
         Err(MemoryError::InvalidAddress)
     }
-    
-    /// Check if a page is currently swapped out
-    fn is_page_swapped(&self, addr: VirtAddr) -> bool {
-        let swap_manager = self.swap_manager.lock();
-        // In a real implementation, we would maintain a mapping of virtual addresses to swap slots
-        // For now, we'll assume pages are not swapped (this would be enhanced with proper bookkeeping)
-        false
-    }
-    
+
     /// Handle swap-in operation for a page fault on swapped page
     pub fn handle_swap_in(&self, addr: VirtAddr, region: &VirtualMemoryRegion) -> Result<(), MemoryError> {
         let page = Page::containing_address(addr);
@@ -2229,8 +2221,8 @@ impl MemoryManager {
         ).map_err(|_| MemoryError::MappingFailed)?;
 
         // Increment reference counts for all shared frames
-        let start_page = Page::containing_address(src_start);
-        let end_page = Page::containing_address(src_start + src_size - 1u64);
+        let start_page: Page<Size4KiB> = Page::containing_address(src_start);
+        let end_page: Page<Size4KiB> = Page::containing_address(src_start + src_size - 1u64);
 
         for page in Page::range_inclusive(start_page, end_page) {
             if let Some(phys_addr) = page_table_manager.translate_addr(page.start_address()) {
@@ -2338,6 +2330,7 @@ pub enum MemoryError {
     InvalidOrder,
     BuddyAllocationFailed,
     FragmentationLimitExceeded,
+    PermissionDenied,
 }
 
 impl fmt::Display for MemoryError {
@@ -2359,6 +2352,7 @@ impl fmt::Display for MemoryError {
             MemoryError::InvalidOrder => write!(f, "Invalid buddy allocator order"),
             MemoryError::BuddyAllocationFailed => write!(f, "Buddy allocation failed"),
             MemoryError::FragmentationLimitExceeded => write!(f, "Memory fragmentation limit exceeded"),
+            MemoryError::PermissionDenied => write!(f, "Permission denied"),
         }
     }
 }
@@ -2602,10 +2596,8 @@ mod tests {
 pub fn try_fast_page_fault_handler(addr: VirtAddr) -> bool {
     // Get the memory manager
     if let Some(memory_manager) = get_memory_manager() {
-        let manager = memory_manager.lock();
-        
         // Check if this is a known memory region
-        if let Some(region) = manager.find_region(addr) {
+        if let Some(region) = memory_manager.find_region(addr) {
             // Handle common fast-path cases
             match region.region_type {
                 MemoryRegionType::UserStack => {
@@ -2664,10 +2656,8 @@ pub fn adjust_heap(new_size: usize) -> Result<usize, &'static str> {
     
     // Get current heap size
     if let Some(memory_manager) = get_memory_manager() {
-        let manager = memory_manager.lock();
-        
         // Get current memory statistics
-        let stats = manager.get_memory_report();
+        let stats = memory_manager.get_memory_report();
         let current_heap_size = KERNEL_HEAP_SIZE;
         
         // Check if we're expanding or shrinking
@@ -2758,10 +2748,9 @@ pub fn map_physical_memory(virt: usize, phys: usize, flags: MemoryFlags) -> Resu
     let frame = PhysFrame::containing_address(phys_addr);
 
     // Get the global memory manager
-    if let Some(memory_manager_mutex) = get_memory_manager() {
-        let manager = memory_manager_mutex.lock();
-        let mut page_table_manager = manager.page_table_manager.lock();
-        let mut frame_allocator = manager.frame_allocator.lock();
+    if let Some(memory_manager) = get_memory_manager() {
+        let mut page_table_manager = memory_manager.page_table_manager.lock();
+        let mut frame_allocator = memory_manager.frame_allocator.lock();
 
         // Map the page with the specified flags
         page_table_manager.map_page(page, frame, flags.to_page_table_flags(), &mut *frame_allocator)
@@ -2784,9 +2773,8 @@ pub fn unmap_page(addr: usize) -> Result<(), &'static str> {
     let virt_addr = VirtAddr::new(addr as u64);
     let page = Page::containing_address(virt_addr);
 
-    if let Some(memory_manager_mutex) = get_memory_manager() {
-        let manager = memory_manager_mutex.lock();
-        let mut page_table_manager = manager.page_table_manager.lock();
+    if let Some(memory_manager) = get_memory_manager() {
+        let mut page_table_manager = memory_manager.page_table_manager.lock();
 
         // Unmap the page
         if page_table_manager.unmap_page(page).is_some() {
@@ -2796,5 +2784,66 @@ pub fn unmap_page(addr: usize) -> Result<(), &'static str> {
         }
     } else {
         Err("Memory manager not initialized")
+    }
+}
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Check if a memory access is valid for a given address range and privilege level
+///
+/// # Arguments
+/// * `addr` - Starting address to check
+/// * `size` - Size of the memory region in bytes
+/// * `write` - Whether the access is for writing (true) or reading (false)
+/// * `privilege_level` - Privilege level of the accessor (0 = kernel, 3 = user)
+///
+/// # Returns
+/// * `Ok(true)` - Access is allowed
+/// * `Ok(false)` - Access is not allowed
+/// * `Err(&str)` - Error checking the access
+pub fn check_memory_access(addr: usize, size: usize, write: bool, privilege_level: u8) -> Result<bool, &'static str> {
+    // Basic validation
+    if size == 0 {
+        return Ok(false);
+    }
+
+    // Check for overflow
+    let end_addr = addr.checked_add(size).ok_or("Address overflow")?;
+
+    // User mode (privilege level 3) restrictions
+    if privilege_level == 3 {
+        // User mode cannot access kernel space (typically above 0xFFFF_8000_0000_0000)
+        if addr >= 0xFFFF_8000_0000_0000 || end_addr > 0xFFFF_8000_0000_0000 {
+            return Ok(false);
+        }
+    }
+
+    // TODO: Check page table entries to verify actual permissions
+    // For now, we'll do basic range checking
+
+    // Check if the memory manager is initialized
+    if let Some(memory_manager) = get_memory_manager() {
+        let page_table_manager = memory_manager.page_table_manager.lock();
+
+        // Check if the pages are mapped
+        for offset in (0..size).step_by(4096) {
+            let check_addr = addr + offset;
+            let virt_addr = VirtAddr::new(check_addr as u64);
+            let page: Page<Size4KiB> = Page::containing_address(virt_addr);
+
+            // Check if page is mapped
+            if page_table_manager.mapper.translate_page(page).is_err() {
+                return Ok(false);
+            }
+
+            // TODO: Check page table flags for write permissions if write == true
+        }
+
+        Ok(true)
+    } else {
+        // If memory manager is not initialized, allow kernel accesses only
+        Ok(privilege_level == 0)
     }
 }

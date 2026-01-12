@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageError, StorageStats};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::{format, vec};
 use core::mem;
 use core::ptr;
@@ -109,8 +110,8 @@ pub const AHCI_DEVICE_IDS: &[AhciDeviceId] = &[
     AhciDeviceId { vendor_id: 0x1039, device_id: 0x1185, name: "SiS 968 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT },
 
     // ATI/AMD legacy
-    AhciDeviceId { vendor_id: 0x1002, device_id: 0x4379, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT | AhciQuirks::NO_MSI },
-    AhciDeviceId { vendor_id: 0x1002, device_id: 0x437a, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT | AhciQuirks::NO_MSI },
+    AhciDeviceId { vendor_id: 0x1002, device_id: 0x4379, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::from_bits_truncate(AhciQuirks::NO_64BIT.bits() | AhciQuirks::NO_MSI.bits()) },
+    AhciDeviceId { vendor_id: 0x1002, device_id: 0x437a, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::from_bits_truncate(AhciQuirks::NO_64BIT.bits() | AhciQuirks::NO_MSI.bits()) },
 
     // JMicron
     AhciDeviceId { vendor_id: 0x197b, device_id: 0x2360, name: "JMicron JMB360 AHCI", supports_64bit: true, max_ports: 1, quirks: AhciQuirks::NO_PMP },
@@ -415,7 +416,7 @@ impl AhciDriver {
     }
 
     /// Execute SATA command (production implementation)
-    fn execute_command(&mut self, port: u8, command: u8, lba: u64, count: u16, buffer: Option<&mut [u8]>) -> Result<(), StorageError> {
+    fn execute_command(&mut self, port: u8, command: u8, lba: u64, count: u16, mut buffer: Option<&mut [u8]>) -> Result<(), StorageError> {
         // Check port status
         let ssts = self.read_port_reg(port, AhciPortReg::Ssts);
         let det = ssts & 0xf;
@@ -756,7 +757,7 @@ impl StorageDriver for AhciDriver {
 
     fn standby(&mut self) -> Result<(), StorageError> {
         // Execute STANDBY command
-        self.execute_command(0, 0xE2, 0, 0)?;
+        self.execute_command(0, 0xE2, 0, 0, None)?;
         self.state = StorageDeviceState::Standby;
         Ok(())
     }
@@ -764,7 +765,7 @@ impl StorageDriver for AhciDriver {
     fn wake(&mut self) -> Result<(), StorageError> {
         if self.state == StorageDeviceState::Standby {
             // Any command will wake the device
-            self.execute_command(0, 0xE1, 0, 0)?; // IDLE command
+            self.execute_command(0, 0xE1, 0, 0, None)?; // IDLE command
             self.state = StorageDeviceState::Ready;
         }
         Ok(())
@@ -776,13 +777,13 @@ impl StorageDriver for AhciDriver {
         }
 
         // Execute vendor-specific command (implementation depends on vendor)
-        self.execute_command(0, command, 0, data.len() as u16)?;
+        self.execute_command(0, command, 0, data.len() as u16, None)?;
 
         // Return empty response for now
         Ok(Vec::new())
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         if !self.capabilities.supports_smart {
             return Err(StorageError::NotSupported);
         }

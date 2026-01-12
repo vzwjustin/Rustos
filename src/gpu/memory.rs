@@ -18,6 +18,8 @@ use spin::Mutex;
 use lazy_static::lazy_static;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU64;
+use x86_64::structures::paging::{PhysFrame, FrameAllocator};
+use x86_64::PhysAddr;
 
 use super::{GPUCapabilities, GPUVendor, GPUTier};
 
@@ -221,7 +223,7 @@ pub struct GPUMemoryManager {
     pub dma_buffers: Vec<DMABuffer>,
     pub free_blocks: BTreeMap<usize, Vec<u64>>, // Size -> list of addresses
     pub bandwidth_optimization: BandwidthOptimization,
-    pub memory_stats: GPUMemoryStats,
+    pub stats: GPUMemoryStats,
     pub next_allocation_id: u32,
     pub next_dma_id: u32,
     pub fragmentation_threshold: f32,
@@ -265,7 +267,7 @@ impl GPUMemoryManager {
             dma_buffers: Vec::new(),
             free_blocks,
             bandwidth_optimization,
-            memory_stats: GPUMemoryStats::new(),
+            stats: GPUMemoryStats::new(),
             next_allocation_id: 1,
             next_dma_id: 1,
             fragmentation_threshold: 0.3, // 30% fragmentation threshold
@@ -764,7 +766,7 @@ impl GPUMemoryManager {
         // Track allocation in GPU memory manager
         self.track_allocation(alloc_info)?;
         
-        self.memory_stats.total_allocations.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.stats.total_allocations.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         
         NonNull::new(virt_addr as *mut u8).ok_or("Invalid virtual address")
     }
@@ -899,9 +901,9 @@ impl GPUMemoryManager {
             if !gpu_base.is_null() {
                 // Configure GGTT entry for this allocation
                 let ggtt_base = gpu_base.add(0x100000 / 4); // GGTT at offset 0x100000
-                let entry_index = (virt_addr - 0xFE000000) / 4096; // Page index
+                let entry_index = ((virt_addr - 0xFE000000) / 4096) as usize; // Page index
                 let pages = (size + 4095) / 4096;
-                
+
                 for i in 0..pages {
                     let phys_addr = self.virt_to_phys(virt_addr + i as u64 * 4096)?;
                     let ggtt_entry = (phys_addr & 0xFFFFF000) | 0x1; // Valid bit
@@ -924,9 +926,9 @@ impl GPUMemoryManager {
             if !gpu_base.is_null() {
                 // Configure page table entries for this allocation
                 let pt_base = gpu_base.add(0x200000 / 4); // Page table at offset 0x200000
-                let entry_index = (virt_addr - 0xFE000000) / 4096;
+                let entry_index = ((virt_addr - 0xFE000000) / 4096) as usize;
                 let pages = (size + 4095) / 4096;
-                
+
                 for i in 0..pages {
                     let phys_addr = self.virt_to_phys(virt_addr + i as u64 * 4096)?;
                     let pt_entry = (phys_addr & 0xFFFFF000) | 0x3; // Valid | Readable | Writable
@@ -1005,7 +1007,7 @@ impl GPUMemoryManager {
         // Unmap virtual pages
         for i in 0..pages_needed {
             let page_addr = virt_addr + (i * 4096) as u64;
-            if let Err(_) = crate::memory::unmap_page(x86_64::VirtAddr::new(page_addr)) {
+            if let Err(_) = crate::memory::unmap_page(page_addr as usize) {
                 crate::serial_println!("Warning: Failed to unmap GPU page at {:x}", page_addr);
             }
         }
@@ -1030,7 +1032,7 @@ impl GPUMemoryManager {
         // - Platform-specific GPU memory APIs
         
         // For now, validate the operation completed
-        self.memory_stats.total_transfers.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.stats.total_transfers.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

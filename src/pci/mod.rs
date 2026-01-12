@@ -160,14 +160,17 @@ pub struct PciDevice {
     pub vendor_id: u16,
     pub device_id: u16,
     pub class_code: PciClass,
+    pub class: u8,
     pub subclass: u8,
     pub prog_if: u8,
     pub revision_id: u8,
+    pub revision: u8,
     pub header_type: u8,
     pub subsystem_vendor_id: u16,
     pub subsystem_id: u16,
     pub capabilities: PciCapabilities,
     pub bars: [u32; 6],
+    pub name: alloc::string::String,
 }
 
 impl PciDevice {
@@ -180,14 +183,17 @@ impl PciDevice {
             vendor_id: 0,
             device_id: 0,
             class_code: PciClass::Unclassified,
+            class: 0,
             subclass: 0,
             prog_if: 0,
             revision_id: 0,
+            revision: 0,
             header_type: 0,
             subsystem_vendor_id: 0,
             subsystem_id: 0,
             capabilities: PciCapabilities::default(),
             bars: [0; 6],
+            name: alloc::string::String::from("Unknown Device"),
         }
     }
 
@@ -799,4 +805,31 @@ pub fn get_pci_stats() -> PciStats {
 /// Re-export init function with expected name
 pub fn init() -> Result<(), &'static str> {
     init_pci()
+}
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Alias for scan_devices - scans the PCI bus
+pub fn scan_pci_bus() -> Result<Vec<PciDevice>, &'static str> {
+    scan_devices()
+}
+
+/// Read device configuration (returns the device itself)
+pub fn read_device_config(device: &PciDevice) -> Result<PciDevice, &'static str> {
+    // Return a clone of the device as its "config"
+    Ok(device.clone())
+}
+
+/// Classify a PCI device (returns its class code)
+pub fn classify_device(device: &PciDevice) -> Result<PciClass, &'static str> {
+    Ok(device.class_code.clone())
+}
+
+/// Load device driver (stub implementation)
+pub fn load_device_driver(device: &PciDevice) -> Result<(), &'static str> {
+    let _ = device;
+    // TODO: Implement actual driver loading
+    Err("Driver loading not yet implemented")
 }

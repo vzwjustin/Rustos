@@ -233,7 +233,17 @@ pub trait StorageDriver: Send + Sync + core::fmt::Debug {
     fn vendor_command(&mut self, command: u8, data: &[u8]) -> Result<Vec<u8>, StorageError>;
 
     /// Get SMART data (if supported)
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError>;
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError>;
+
+    /// Get device model string
+    fn get_model(&self) -> Option<String> {
+        None
+    }
+
+    /// Get device serial number
+    fn get_serial(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Storage device descriptor
@@ -967,7 +977,7 @@ pub fn wake_device(device_id: u32) -> Result<(), StorageError> {
 /// Get SMART data from a device
 pub fn get_device_smart_data(device_id: u32) -> Result<Vec<u8>, StorageError> {
     with_storage_manager(|manager| {
-        if let Some(device) = manager.get_device(device_id) {
+        if let Some(device) = manager.get_device_mut(device_id) {
             device.driver.get_smart_data()
         } else {
             Err(StorageError::DeviceNotFound)

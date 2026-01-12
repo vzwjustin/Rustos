@@ -47,7 +47,7 @@
 //! 5. Setting up page fault handling contexts for safe operations
 
 use x86_64::{VirtAddr, PhysAddr, structures::paging::{Page, PageTable, PageTableFlags, Size4KiB}};
-use crate::memory::{get_memory_manager, MemoryError};
+use crate::memory::{get_memory_manager, MemoryError, PAGE_SIZE};
 use crate::gdt::{is_kernel_mode, get_current_privilege_level};
 use crate::syscall::SyscallError;
 use core::slice;

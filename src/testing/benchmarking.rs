@@ -322,7 +322,7 @@ impl BenchmarkSuite {
                 // Use real memory management system
                 use crate::memory::{get_memory_manager, MemoryZone};
                 if let Some(memory_manager) = get_memory_manager() {
-                    let mut manager = memory_manager.lock();
+                    let manager = memory_manager;
                     if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
                         manager.deallocate_frame(frame, MemoryZone::Normal);
                     }
@@ -370,7 +370,7 @@ impl BenchmarkSuite {
                     // Use real memory management system for throughput testing
                     use crate::memory::{get_memory_manager, MemoryZone};
                     if let Some(memory_manager) = get_memory_manager() {
-                        let mut manager = memory_manager.lock();
+                        let manager = memory_manager;
                         if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
                             manager.deallocate_frame(frame, MemoryZone::Normal);
                         }
@@ -638,20 +638,18 @@ fn benchmark_memory_allocation() -> TestResult {
     
     if let Some(memory_manager) = get_memory_manager() {
         let mut allocated_frames = Vec::new();
-        
+
         // Allocation phase
         for _ in 0..iterations {
-            let mut manager = memory_manager.lock();
-            if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
+            if let Some(frame) = memory_manager.allocate_frame_in_zone(MemoryZone::Normal) {
                 allocated_frames.push(frame);
                 successful_allocations += 1;
             }
         }
-        
+
         // Deallocation phase
         for frame in allocated_frames {
-            let mut manager = memory_manager.lock();
-            manager.deallocate_frame(frame, MemoryZone::Normal);
+            memory_manager.deallocate_frame(frame, MemoryZone::Normal);
         }
     }
     
@@ -751,15 +749,17 @@ fn benchmark_io_throughput() -> TestResult {
 
     // Submit I/O requests for 5 seconds
     while crate::time::uptime_us() - start_time < 5_000_000 {
-        let buffer = 0x10000 as *mut u8;
+        let buffer = Some(0x10000u64);
 
         let request = crate::io_optimized::IoRequest {
+            request_id: 0,
             id: 0,
             request_type: crate::io_optimized::IoRequestType::Read,
             priority: crate::io_optimized::IoPriority::Normal,
+            target: 0,
+            offset: requests_submitted as u64 * 4096,
             buffer,
             size: 4096,
-            offset: requests_submitted as u64 * 4096,
             device_id: 0,
             waker: None,
             completion_status: crate::io_optimized::IoCompletionStatus::Pending,

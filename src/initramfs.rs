@@ -187,12 +187,12 @@ pub fn start_init() -> Result<(), InitramfsError> {
 
     // 2. Read the entire /init binary into memory
     let mut binary_data = Vec::new();
-    let file_size = init_inode.metadata()
+    let file_size = init_inode.stat()
         .map_err(|_| InitramfsError::VfsError)?
         .size;
 
-    binary_data.resize(file_size, 0);
-    init_inode.read(0, &mut binary_data)
+    binary_data.resize(file_size as usize, 0);
+    init_inode.read_at(0, &mut binary_data)
         .map_err(|_| InitramfsError::VfsError)?;
 
     // 3. Load and validate the ELF binary
@@ -263,6 +263,7 @@ pub enum InitramfsError {
     ExtractionFailed,
     InitNotFound,
     VfsError,
+    ParseError,
 }
 
 /// CPIO header structure (newc format)
@@ -324,4 +325,19 @@ pub fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>, InitramfsError> {
     // Use miniz_oxide for decompression
     // This would be implemented using the existing miniz_oxide dependency
     Err(InitramfsError::DecompressionFailed)
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement CPIO extraction
+/// Extract CPIO archive data to the VFS
+/// Currently returns an error - needs CPIO parsing implementation
+fn extract_cpio(data: &[u8]) -> Result<(), InitramfsError> {
+    let _ = data;
+    // TODO: Parse CPIO newc format
+    // TODO: Extract files to VFS
+    // TODO: Handle directories, symlinks, and special files
+    Err(InitramfsError::ParseError)
 }

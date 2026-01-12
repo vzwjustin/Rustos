@@ -4,6 +4,7 @@
 //! and privilege level management for RustOS.
 
 use lazy_static::lazy_static;
+use spin::Mutex;
 use x86_64::instructions::segmentation::{Segment, CS, DS, ES, FS, GS, SS};
 use x86_64::instructions::tables::load_tss;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector as GdtSegmentSelector};
@@ -19,20 +20,8 @@ const STACK_SIZE: usize = 4096 * 5; // 20KB stack
 /// Interrupt stack for double fault handler
 static mut DOUBLE_FAULT_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
-lazy_static! {
-    static ref TSS: TaskStateSegment = {
-        let mut tss = TaskStateSegment::new();
-
-        // Set up the double fault stack in the IST
-        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
-            let stack_start = VirtAddr::from_ptr(&raw const DOUBLE_FAULT_STACK);
-            let stack_end = stack_start + STACK_SIZE;
-            stack_end
-        };
-
-        tss
-    };
-}
+/// Task State Segment (mutable for stack updates)
+static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
 /// GDT segment selectors
 struct Selectors {
@@ -60,7 +49,7 @@ lazy_static! {
         let user_data_selector = gdt.add_entry(Descriptor::user_data_segment());
 
         // Task State Segment
-        let tss_selector = gdt.add_entry(Descriptor::tss_segment(&TSS));
+        let tss_selector = gdt.add_entry(Descriptor::tss_segment(unsafe { &TSS }));
 
         (gdt, Selectors {
             kernel_code_selector,
@@ -74,6 +63,15 @@ lazy_static! {
 
 /// Initialize the GDT and load segment selectors
 pub fn init() {
+    // Initialize TSS with double fault stack
+    unsafe {
+        TSS.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
+            let stack_start = VirtAddr::from_ptr(&raw const DOUBLE_FAULT_STACK);
+            let stack_end = stack_start + STACK_SIZE;
+            stack_end
+        };
+    }
+
     GDT.0.load();
 
     unsafe {
@@ -201,20 +199,20 @@ pub struct StackInfo {
 
 /// Get stack information from TSS
 pub fn get_stack_info() -> StackInfo {
-    let tss = &*TSS;
-
-    StackInfo {
-        kernel_stack: VirtAddr::new(0), // Would be set during task switching
-        user_stack: None, // Would be set during task switching
-        interrupt_stacks: [
-            tss.interrupt_stack_table[0],
-            tss.interrupt_stack_table[1],
-            tss.interrupt_stack_table[2],
-            tss.interrupt_stack_table[3],
-            tss.interrupt_stack_table[4],
-            tss.interrupt_stack_table[5],
-            tss.interrupt_stack_table[6],
-        ],
+    unsafe {
+        StackInfo {
+            kernel_stack: VirtAddr::new(0), // Would be set during task switching
+            user_stack: None, // Would be set during task switching
+            interrupt_stacks: [
+                TSS.interrupt_stack_table[0],
+                TSS.interrupt_stack_table[1],
+                TSS.interrupt_stack_table[2],
+                TSS.interrupt_stack_table[3],
+                TSS.interrupt_stack_table[4],
+                TSS.interrupt_stack_table[5],
+                TSS.interrupt_stack_table[6],
+            ],
+        }
     }
 }
 
@@ -230,16 +228,10 @@ pub fn set_kernel_stack(stack_ptr: VirtAddr) {
     use core::ptr;
 
     // Get a mutable reference to TSS
-    // Safety: We have exclusive access via the init process
-    let tss = unsafe {
-        // Cast away const to get mutable access
-        // This is safe because we're the only ones modifying TSS
-        &mut *((&*TSS as *const TaskStateSegment) as *mut TaskStateSegment)
-    };
-
-    // Set RSP0 (Ring 0 stack pointer)
-    // This is the stack used when transitioning from Ring 3 to Ring 0
-    tss.privilege_stack_table[0] = stack_ptr;
+    // Safety: We have exclusive access during init
+    unsafe {
+        TSS.privilege_stack_table[0] = stack_ptr;
+    }
 
     crate::serial_println!("Kernel stack set to {:?} in TSS", stack_ptr);
 }
@@ -353,18 +345,19 @@ pub mod tss_management {
 
     /// Get current TSS field values
     pub fn get_tss_fields() -> TssFields {
-        let tss = &*TSS;
-        TssFields {
-            rsp0: tss.privilege_stack_table[0].as_u64(),
-            rsp1: tss.privilege_stack_table[1].as_u64(),
-            rsp2: tss.privilege_stack_table[2].as_u64(),
-            ist1: tss.interrupt_stack_table[0].as_u64(),
-            ist2: tss.interrupt_stack_table[1].as_u64(),
-            ist3: tss.interrupt_stack_table[2].as_u64(),
-            ist4: tss.interrupt_stack_table[3].as_u64(),
-            ist5: tss.interrupt_stack_table[4].as_u64(),
-            ist6: tss.interrupt_stack_table[5].as_u64(),
-            ist7: tss.interrupt_stack_table[6].as_u64(),
+        unsafe {
+            TssFields {
+                rsp0: TSS.privilege_stack_table[0].as_u64(),
+                rsp1: TSS.privilege_stack_table[1].as_u64(),
+                rsp2: TSS.privilege_stack_table[2].as_u64(),
+                ist1: TSS.interrupt_stack_table[0].as_u64(),
+                ist2: TSS.interrupt_stack_table[1].as_u64(),
+                ist3: TSS.interrupt_stack_table[2].as_u64(),
+                ist4: TSS.interrupt_stack_table[3].as_u64(),
+                ist5: TSS.interrupt_stack_table[4].as_u64(),
+                ist6: TSS.interrupt_stack_table[5].as_u64(),
+                ist7: TSS.interrupt_stack_table[6].as_u64(),
+            }
         }
     }
 

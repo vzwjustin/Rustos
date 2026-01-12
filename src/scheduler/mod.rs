@@ -325,6 +325,16 @@ impl CpuScheduler {
         self.ready_queues.iter().map(|q| q.len()).sum()
     }
 
+    /// Get the total number of processes (ready + current)
+    pub fn process_count(&self) -> usize {
+        let ready_count = self.ready_process_count();
+        if self.current_process.is_some() {
+            ready_count + 1
+        } else {
+            ready_count
+        }
+    }
+
     /// Update CPU utilization
     pub fn update_utilization(&mut self, active_time: u64, total_time: u64) {
         if total_time > 0 {
@@ -410,8 +420,8 @@ impl GlobalScheduler {
             if cpu_id >= 64 || (process_affinity & (1 << cpu_id)) == 0 {
                 continue;
             }
-            
-            if let Ok(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+
+            if let Some(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 let load = cpu_scheduler.ready_process_count();
                 if load < min_load {
                     min_load = load;
@@ -427,7 +437,7 @@ impl GlobalScheduler {
     pub fn terminate_process(&self, pid: Pid) -> Result<(), &'static str> {
         // Remove from all CPU ready queues
         for cpu_scheduler_mutex in &self.cpu_schedulers {
-            if let Ok(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 // Remove from all priority queues
                 for queue in &mut cpu_scheduler.ready_queues {
                     queue.retain(|&p| p != pid);
@@ -455,7 +465,7 @@ impl GlobalScheduler {
     pub fn block_process(&self, pid: Pid) -> Result<(), &'static str> {
         // Remove from all CPU ready queues
         for cpu_scheduler_mutex in &self.cpu_schedulers {
-            if let Ok(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 for queue in &mut cpu_scheduler.ready_queues {
                     queue.retain(|&p| p != pid);
                 }
@@ -478,7 +488,7 @@ impl GlobalScheduler {
         }).ok_or("Process not found")?;
 
         // Add to appropriate CPU's ready queue
-        if let Ok(mut cpu_scheduler) = self.cpu_schedulers[cpu_id as usize].try_lock() {
+        if let Some(mut cpu_scheduler) = self.cpu_schedulers[cpu_id as usize].try_lock() {
             cpu_scheduler.enqueue_process(pid, priority);
         }
 
@@ -635,8 +645,8 @@ impl GlobalScheduler {
             if other_cpu_id == cpu_id as usize {
                 continue;
             }
-            
-            if let Ok(other_scheduler) = other_scheduler_mutex.try_lock() {
+
+            if let Some(other_scheduler) = other_scheduler_mutex.try_lock() {
                 let load = other_scheduler.ready_process_count();
                 if load > max_load && load > 1 { // Only steal if source has more than 1 process
                     max_load = load;
@@ -647,7 +657,7 @@ impl GlobalScheduler {
 
         // Steal a process from the most loaded CPU
         if let Some(source_cpu_id) = source_cpu {
-            if let Ok(mut source_scheduler) = self.cpu_schedulers[source_cpu_id].try_lock() {
+            if let Some(mut source_scheduler) = self.cpu_schedulers[source_cpu_id].try_lock() {
                 // Try to steal from lower priority queues first
                 for priority_idx in (1..Priority::count()).rev() { // Skip RealTime (0)
                     if let Some(stolen_pid) = source_scheduler.ready_queues[priority_idx].pop_back() {
@@ -752,7 +762,7 @@ impl GlobalScheduler {
         
         // Collect load information from all CPUs
         for (cpu_id, cpu_scheduler_mutex) in self.cpu_schedulers.iter().enumerate() {
-            if let Ok(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 cpu_loads.push((cpu_id, cpu_scheduler.ready_process_count(), cpu_scheduler.utilization));
             }
         }
@@ -779,7 +789,7 @@ impl GlobalScheduler {
         }
 
         // Try to acquire locks on both schedulers
-        if let (Ok(mut source_scheduler), Ok(mut target_scheduler)) = (
+        if let (Some(mut source_scheduler), Some(mut target_scheduler)) = (
             self.cpu_schedulers[source_cpu].try_lock(),
             self.cpu_schedulers[target_cpu].try_lock()
         ) {
@@ -976,7 +986,7 @@ pub fn set_process_priority(pid: Pid, new_priority: Priority) -> Result<(), &'st
     if process_state == ProcessState::Ready {
         // Remove from old priority queue
         for cpu_scheduler_mutex in &GLOBAL_SCHEDULER.cpu_schedulers {
-            if let Ok(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 if cpu_scheduler.ready_queues[old_priority as usize].iter().position(|&p| p == pid).is_some() {
                     cpu_scheduler.ready_queues[old_priority as usize].retain(|&p| p != pid);
                     cpu_scheduler.enqueue_process(pid, new_priority);
@@ -998,7 +1008,7 @@ pub fn schedule() -> Option<Pid> {
     // For simplicity, we assume each process has a main thread with TID = PID
     if let Some(pid) = next_pid {
         let thread_manager = crate::process::thread::get_thread_manager();
-        thread_manager.set_current_thread(pid as u64);
+        thread_manager.set_current_thread(pid);
     }
     
     next_pid
@@ -1026,7 +1036,7 @@ fn get_system_time() -> u64 {
 }
 
 /// Context switch between processes (real assembly implementation)
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn context_switch(old_state: *mut CpuState, new_state: *const CpuState) {
     use core::arch::naked_asm;
     
@@ -1207,7 +1217,7 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
     let process_priority = GLOBAL_SCHEDULER.with_process(pid, |process| process.priority);
     if let Some(priority) = process_priority {
         for (cpu_id, cpu_scheduler_mutex) in GLOBAL_SCHEDULER.cpu_schedulers.iter().enumerate() {
-            if let Ok(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 if cpu_scheduler.ready_queues[priority as usize].iter().position(|&p| p == pid).is_some() {
                     cpu_scheduler.ready_queues[priority as usize].retain(|&p| p != pid);
                     break;
@@ -1216,7 +1226,7 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
         }
 
         // Add to target CPU's ready queue
-        if let Ok(mut target_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[target_cpu as usize].try_lock() {
+        if let Some(mut target_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[target_cpu as usize].try_lock() {
             target_scheduler.enqueue_process(pid, priority);
         }
     }
@@ -1227,9 +1237,9 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
 /// Get current CPU load information
 pub fn get_cpu_loads() -> Vec<(CpuId, usize, u8)> {
     let mut loads = Vec::new();
-    
+
     for (cpu_id, cpu_scheduler_mutex) in GLOBAL_SCHEDULER.cpu_schedulers.iter().enumerate() {
-        if let Ok(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+        if let Some(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
             loads.push((
                 cpu_id as CpuId,
                 cpu_scheduler.ready_process_count(),
@@ -1251,7 +1261,35 @@ pub fn set_load_balancing(enabled: bool) {
 pub fn yield_cpu() {
     // Trigger a reschedule by setting time slice to 0
     let cpu_id = get_current_cpu_id();
-    if let Ok(mut cpu_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[cpu_id as usize].try_lock() {
+    if let Some(mut cpu_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[cpu_id as usize].try_lock() {
         cpu_scheduler.time_slice_remaining = 0;
     }
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement scheduler accessor
+/// Get a reference to the current CPU's scheduler
+/// Currently returns None - needs proper scheduler access pattern
+pub fn get_scheduler() -> Option<&'static Mutex<CpuScheduler>> {
+    let cpu_id = get_current_cpu_id();
+    if (cpu_id as usize) < GLOBAL_SCHEDULER.cpu_schedulers.len() {
+        Some(&GLOBAL_SCHEDULER.cpu_schedulers[cpu_id as usize])
+    } else {
+        None
+    }
+}
+
+/// TODO: Implement process priority update
+/// Update the priority of a process
+/// Currently does nothing - needs proper priority change implementation
+pub fn update_process_priority(pid: Pid, new_priority: Priority) {
+    // Update the process priority in the global scheduler
+    GLOBAL_SCHEDULER.with_process(pid, |process| {
+        // This would need to be extended to actually update the process priority
+        // and move it to the appropriate ready queue
+        let _ = new_priority;
+    });
 }

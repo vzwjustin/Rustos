@@ -1,10 +1,17 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
 use core::panic::PanicInfo;
 use bootloader::{BootInfo, entry_point};
+use alloc::string::ToString;
+use linked_list_allocator::LockedHeap;
+
+// Global allocator for heap memory
+#[global_allocator]
+pub static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 // Include compiler intrinsics for missing symbols
 mod intrinsics;
@@ -208,13 +215,15 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // ========================================================================
     // PHASE 3: ACPI Initialization
     // ========================================================================
-    let acpi_result = if let Some(rsdp_addr) = boot_info.rsdp_addr {
-        boot_ui::acpi_init_progress(Some(rsdp_addr.into()), boot_info.physical_memory_offset.into())
-    } else {
+    // Note: bootloader v0.9.33 doesn't provide rsdp_addr or physical_memory_offset
+    // We'll use manual ACPI detection and a default physical offset
+    let physical_memory_offset = x86_64::VirtAddr::new(0);
+    let acpi_result = {
         boot_ui::begin_stage(boot_ui::BootStage::AcpiInit, 1);
-        boot_ui::report_warning("ACPI", "No RSDP address from bootloader");
+        boot_ui::report_warning("ACPI", "Bootloader v0.9.33 doesn't provide RSDP address - using manual detection");
         boot_ui::complete_stage(boot_ui::BootStage::AcpiInit);
-        boot_ui::AcpiInitResult::new()
+        // Try ACPI initialization with manual detection
+        boot_ui::acpi_init_progress(None, physical_memory_offset.as_u64())
     };
 
     // ========================================================================
@@ -225,7 +234,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // ========================================================================
     // PHASE 5: Memory Management Initialization
     // ========================================================================
-    let physical_memory_offset = x86_64::VirtAddr::new(0);
     let memory_result = boot_ui::memory_init_progress(&boot_info.memory_map, physical_memory_offset);
 
     // ========================================================================
@@ -745,7 +753,7 @@ fn modern_desktop_main_loop() -> ! {
                 }
                 drivers::InputEvent::MouseScroll { delta, x, y } => {
                     // Handle scroll wheel
-                    desktop::handle_scroll(x, y, delta as i32);
+                    desktop::handle_scroll(x as i32, y as i32, delta as i32);
                 }
             }
         }
@@ -1033,11 +1041,7 @@ fn panic(info: &PanicInfo) -> ! {
         "unknown location".to_string()
     };
     
-    let message = if let Some(msg) = info.message() {
-        alloc::format!("{}", msg)
-    } else {
-        "Kernel panic occurred".to_string()
-    };
+    let message = alloc::format!("{}", info.message());
     
     let error_context = ErrorContext::new(
         KernelError::System(SystemError::InternalError),
@@ -1047,7 +1051,7 @@ fn panic(info: &PanicInfo) -> ! {
     );
     
     // Try to handle the fatal error gracefully
-    if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+    if let Some(mut manager) = ERROR_MANAGER.try_lock() {
         let _ = manager.handle_error(error_context);
     } else {
         // Fallback if error manager is not available

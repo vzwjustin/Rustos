@@ -407,12 +407,12 @@ impl DnsResourceRecord {
         if self.rtype != DnsRecordType::A || self.rdata.len() != 4 {
             return Err(NetworkError::ProtocolError);
         }
-        Ok(Ipv4Address::from_bytes([
+        Ok([
             self.rdata[0],
             self.rdata[1],
             self.rdata[2],
             self.rdata[3],
-        ]))
+        ])
     }
 
     /// Get text from TXT record data

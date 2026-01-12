@@ -510,6 +510,11 @@ impl Vfs {
         inode.stat()
     }
 
+    /// Look up an inode by path
+    pub fn lookup(&self, path: &str) -> VfsResult<Arc<dyn InodeOps>> {
+        self.resolve_path(path)
+    }
+
     /// Get file statistics by file descriptor
     pub fn fstat(&self, fd: i32) -> VfsResult<Stat> {
         let file_table = self.file_table.lock();

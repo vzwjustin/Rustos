@@ -174,6 +174,7 @@ pub enum SyscallError {
     IoError = 0xFFFFFFFFFFFFFFF4,
     InvalidExecutable = 0xFFFFFFFFFFFFFFF3,
     FileTooLarge = 0xFFFFFFFFFFFFFFF2,
+    NotFound = 0xFFFFFFFFFFFFFFF1,
 }
 
 /// File open flags
@@ -184,6 +185,7 @@ pub struct OpenFlags {
     pub create: bool,
     pub truncate: bool,
     pub append: bool,
+    pub exclusive: bool,
 }
 
 impl From<u64> for OpenFlags {
@@ -194,6 +196,7 @@ impl From<u64> for OpenFlags {
             create: (flags & 0x04) != 0,
             truncate: (flags & 0x08) != 0,
             append: (flags & 0x10) != 0,
+            exclusive: (flags & 0x20) != 0,
         }
     }
 }
@@ -319,17 +322,17 @@ impl SyscallDispatcher {
         match integration_manager.fork_process(current_pid) {
             Ok(child_pid) => {
                 // Verify child process was created successfully
-                if let Some(child_process) = process_manager.get_process(child_pid) {
+                if let Some(mut child_process) = process_manager.get_process(child_pid) {
                     // Ensure parent-child relationship is properly set
                     if child_process.parent_pid != Some(current_pid) {
                         // Fix parent-child relationship if not set correctly
                         child_process.parent_pid = Some(current_pid);
                     }
-                    
+
                     // Copy file descriptors from parent to child
                     child_process.file_descriptors = parent_process.file_descriptors.clone();
                     child_process.file_offsets = parent_process.file_offsets.clone();
-                    
+
                     // Copy signal handlers from parent to child
                     child_process.signal_handlers = parent_process.signal_handlers.clone();
                     
@@ -407,13 +410,14 @@ impl SyscallDispatcher {
             create: false,
             append: false,
             truncate: false,
+            exclusive: false,
         }) {
             Ok(fd) => fd,
             Err(_) => return SyscallResult::Error(SyscallError::FileNotFound),
         };
 
         // Get file metadata to determine size
-        let file_size = match vfs.stat(fd) {
+        let file_size = match vfs.stat(&program_path) {
             Ok(metadata) => metadata.size as usize,
             Err(_) => {
                 let _ = vfs.close(fd);
@@ -471,7 +475,7 @@ impl SyscallDispatcher {
         };
 
         // Step 5: Update process control block with loaded binary information
-        let process = match process_manager.get_process(current_pid) {
+        let mut process = match process_manager.get_process(current_pid) {
             Some(p) => p,
             None => return SyscallResult::Error(SyscallError::ProcessNotFound),
         };
@@ -534,7 +538,7 @@ impl SyscallDispatcher {
         };
 
         // Find child processes
-        let children: Vec<Pid> = process_manager.processes.lock()
+        let children: Vec<Pid> = process_manager.processes.read()
             .iter()
             .filter_map(|(pid, pcb)| {
                 if pcb.parent_pid == Some(current_pid) {
@@ -559,7 +563,7 @@ impl SyscallDispatcher {
                 if matches!(child.state, ProcessState::Terminated) {
                     // Reap the child process
                     let exit_code = child.exit_code.unwrap_or(0);
-                    process_manager.processes.lock().remove(&child_pid);
+                    process_manager.processes.write().remove(&child_pid);
                     return SyscallResult::Success(((child_pid as u64) << 32) | (exit_code as u64));
                 }
             }
@@ -625,14 +629,14 @@ impl SyscallDispatcher {
                     }
                 }
 
-                // Schedule a timer callback to wake the process
-                // The timer subsystem will call back when time expires
-                let pid_copy = current_pid;
-                crate::time::schedule_timer(sleep_time_ms * 1000, move || {
-                    // Wake up the sleeping process
-                    let pm = super::get_process_manager();
-                    let _ = pm.unblock_process(pid_copy);
-                });
+                // TODO: Schedule a timer callback to wake the process
+                // Note: Timer callback system needs update to support closures with captures
+                // For now, process will need to be woken by scheduler or other mechanism
+                // let pid_copy = current_pid;
+                // crate::time::schedule_timer(sleep_time_ms * 1000, move || {
+                //     let pm = super::get_process_manager();
+                //     let _ = pm.unblock_process(pid_copy);
+                // });
 
                 SyscallResult::Success(0)
             },
@@ -663,7 +667,7 @@ impl SyscallDispatcher {
         match vfs.open(&path, open_flags, mode) {
             Ok(inode) => {
                 // Allocate file descriptor
-                if let Some(process) = process_manager.get_process(current_pid) {
+                if let Some(mut process) = process_manager.get_process(current_pid) {
                     let mut next_fd = 3; // Start after stdin/stdout/stderr
                     while process.file_descriptors.contains_key(&next_fd) {
                         next_fd += 1;
@@ -685,7 +689,7 @@ impl SyscallDispatcher {
         let fd = args.get(0).copied().unwrap_or(0) as u32;
 
         // Get process and close file descriptor
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             if process.file_descriptors.remove(&fd).is_some() {
                 SyscallResult::Success(0)
             } else {
@@ -703,7 +707,7 @@ impl SyscallDispatcher {
         let count = args.get(2).copied().unwrap_or(0) as usize;
 
         // Get process and file descriptor
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Handle standard input
             if fd == 0 {
                 // Read from console
@@ -720,14 +724,10 @@ impl SyscallDispatcher {
             }
 
             // Handle regular files
-            if let Some(inode) = process.file_descriptors.get(&fd) {
+            if let Some(file_desc) = process.file_descriptors.get_mut(&fd) {
                 let mut buffer = vec![0u8; count];
-                match inode.read(process.file_offsets.get(&fd).copied().unwrap_or(0), &mut buffer) {
+                match file_desc.read(&mut buffer) {
                     Ok(bytes_read) => {
-                        // Update file offset
-                        let new_offset = process.file_offsets.get(&fd).copied().unwrap_or(0) + bytes_read;
-                        process.file_offsets.insert(fd, new_offset);
-
                         // Copy to user buffer
                         if self.copy_to_user(buffer_ptr, &buffer[..bytes_read]).is_ok() {
                             SyscallResult::Success(bytes_read as u64)
@@ -752,7 +752,7 @@ impl SyscallDispatcher {
         let count = args.get(2).copied().unwrap_or(0) as usize;
 
         // Get process
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Handle standard output/error
             if fd == 1 || fd == 2 {
                 // Copy from user buffer
@@ -768,18 +768,15 @@ impl SyscallDispatcher {
             }
 
             // Handle regular files
-            if let Some(inode) = process.file_descriptors.get(&fd) {
+            if let Some(file_desc) = process.file_descriptors.get_mut(&fd) {
                 // Copy from user buffer
                 let mut buffer = vec![0u8; count];
                 if self.copy_from_user(buffer_ptr, &mut buffer).is_err() {
                     return SyscallResult::Error(SyscallError::InvalidAddress);
                 }
 
-                match inode.write(process.file_offsets.get(&fd).copied().unwrap_or(0), &buffer) {
+                match file_desc.write(&buffer) {
                     Ok(bytes_written) => {
-                        // Update file offset
-                        let new_offset = process.file_offsets.get(&fd).copied().unwrap_or(0) + bytes_written;
-                        process.file_offsets.insert(fd, new_offset);
                         SyscallResult::Success(bytes_written as u64)
                     },
                     Err(_) => SyscallResult::Error(SyscallError::IoError),
@@ -798,7 +795,7 @@ impl SyscallDispatcher {
         let offset = args.get(1).copied().unwrap_or(0) as i64;
         let whence = args.get(2).copied().unwrap_or(0) as u32;
 
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             if let Some(file_desc) = process.file_descriptors.get(&fd) {
                 // Get file size from the inode if this is a VFS file
                 let file_size = match file_desc.inode() {
@@ -979,7 +976,7 @@ impl SyscallDispatcher {
         let new_brk = args.get(0).copied().unwrap_or(0);
 
         // Get current process
-        let process = match process_manager.get_process(current_pid) {
+        let mut process = match process_manager.get_process(current_pid) {
             Some(pcb) => pcb,
             None => return SyscallResult::Error(SyscallError::ProcessNotFound),
         };
@@ -1099,7 +1096,7 @@ impl SyscallDispatcher {
         let handler = args.get(1).copied().unwrap_or(0);
 
         // Get process and set signal handler
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Validate signal number (1-31 are standard signals)
             if signal == 0 || signal > 31 {
                 return SyscallResult::Error(SyscallError::InvalidArgument);
@@ -1130,7 +1127,7 @@ impl SyscallDispatcher {
             }
         } else if signal == 15 { // SIGTERM
             // Request process termination
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 // Check if process has a signal handler for SIGTERM
                 if let Some(&handler) = target.signal_handlers.get(&15) {
                     // Queue signal for delivery
@@ -1152,7 +1149,7 @@ impl SyscallDispatcher {
             }
         } else if signal == 2 { // SIGINT
             // Interrupt signal (Ctrl+C)
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 if let Some(&handler) = target.signal_handlers.get(&2) {
                     target.pending_signals.push(signal);
                     if matches!(target.state, ProcessState::Sleeping) {
@@ -1183,7 +1180,7 @@ impl SyscallDispatcher {
             }
         } else {
             // For other signals, just queue them if handler exists
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 if target.signal_handlers.contains_key(&signal) {
                     target.pending_signals.push(signal);
                     SyscallResult::Success(0)
@@ -1272,10 +1269,8 @@ impl SyscallDispatcher {
         }
 
         // Set system time through time subsystem
-        match crate::time::set_system_time(new_time) {
-            Ok(()) => SyscallResult::Success(0),
-            Err(_) => SyscallResult::Error(SyscallError::IoError),
-        }
+        crate::time::set_system_time(new_time);
+        SyscallResult::Success(0)
     }
 
     // Process control
@@ -1556,20 +1551,23 @@ impl SyscallDispatcher {
         // - UTF-8 validation
         const PATH_MAX: usize = 4096;
         UserSpaceMemory::copy_string_from_user(user_ptr, PATH_MAX)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 
     /// Copy data from user space
     fn copy_from_user(&self, user_ptr: u64, buffer: &mut [u8]) -> Result<(), SyscallError> {
         use crate::memory::user_space::UserSpaceMemory;
-        
+
         UserSpaceMemory::copy_from_user(user_ptr, buffer)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 
     /// Copy data to user space
     fn copy_to_user(&self, user_ptr: u64, buffer: &[u8]) -> Result<(), SyscallError> {
         use crate::memory::user_space::UserSpaceMemory;
-        
+
         UserSpaceMemory::copy_to_user(user_ptr, buffer)
+            .map_err(|_| SyscallError::InvalidAddress)
     }
 }
 

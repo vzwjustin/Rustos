@@ -131,3 +131,14 @@ pub fn memory_usage() -> (u64, u64) {
         (0, 0)
     }
 }
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Get the system call rate (syscalls per second)
+pub fn syscall_rate() -> u64 {
+    // TODO: Implement actual syscall tracking
+    // For now, return a placeholder value
+    0
+}

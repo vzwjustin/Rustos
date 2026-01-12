@@ -4,80 +4,16 @@
 //! and other Intel Gigabit Ethernet controllers (E1000 and E1000E series).
 
 use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, PowerState, WakeOnLanConfig};
-use crate::net::{NetworkError, NetworkAddress};
+use crate::net::{NetworkError, NetworkAddress, MacAddress};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use core::ptr;
 
-/// Network device types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceType {
-    Ethernet,
-    Wireless,
-    Loopback,
-}
-
-/// Network device states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceState {
-    Down,
-    Initialized,
-    Up,
-}
-
-/// Device capabilities
-#[derive(Debug, Clone)]
-pub struct DeviceCapabilities {
-    pub mtu: u16,
-    pub hw_checksum: bool,
-    pub scatter_gather: bool,
-    pub vlan_support: bool,
-    pub jumbo_frames: bool,
-    pub multicast_filter: bool,
-    pub max_packet_size: u16,
-    pub link_speed: u32,
-    pub full_duplex: bool,
-    pub rx_queues: u8,
-    pub tx_queues: u8,
-}
-
-impl Default for DeviceCapabilities {
-    fn default() -> Self {
-        Self {
-            mtu: 1500,
-            hw_checksum: false,
-            scatter_gather: false,
-            vlan_support: false,
-            jumbo_frames: false,
-            multicast_filter: false,
-            max_packet_size: 1518,
-            link_speed: 1000,
-            full_duplex: true,
-            rx_queues: 1,
-            tx_queues: 1,
-        }
-    }
-}
-
-/// MAC address wrapper
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MacAddress([u8; 6]);
-
-impl MacAddress {
-    pub const ZERO: MacAddress = MacAddress([0; 6]);
-    
-    pub fn new(bytes: [u8; 6]) -> Self {
-        Self(bytes)
-    }
-    
-    pub fn as_bytes(&self) -> &[u8; 6] {
-        &self.0
-    }
-}
-
-// Use NetworkDriver trait and types from parent module
-use super::{NetworkDriver, NetworkStats};
+// Import types from parent modules to match NetworkDriver trait
+use super::{NetworkDriver, NetworkStats, DeviceState};
+use crate::net::device::{DeviceType, DeviceCapabilities};
 
 /// Intel E1000 device information
 #[derive(Debug, Clone, Copy)]
@@ -227,6 +163,7 @@ pub const INTEL_E1000_DEVICES: &[IntelE1000DeviceInfo] = &[
 
 /// E1000 register offsets
 #[repr(u32)]
+#[derive(Debug, Clone, Copy)]
 pub enum E1000Reg {
     /// Device Control
     Ctrl = 0x00000,
@@ -401,23 +338,16 @@ impl IntelE1000Driver {
         irq: u8,
     ) -> Self {
         let mut capabilities = DeviceCapabilities::default();
-        capabilities.mtu = 1500;
+        capabilities.max_mtu = 9018; // Jumbo frame support
         capabilities.hw_checksum = true;
         capabilities.scatter_gather = true;
-        capabilities.vlan_support = true;
+        capabilities.vlan = true;
         capabilities.jumbo_frames = true;
-        capabilities.multicast_filter = true;
-        capabilities.max_packet_size = 9018; // Jumbo frame
-        capabilities.link_speed = device_info.max_speed_mbps;
-        capabilities.full_duplex = true;
-
-        if device_info.supports_rss {
-            capabilities.rx_queues = device_info.queue_count;
-            capabilities.tx_queues = device_info.queue_count;
-        }
+        capabilities.tso = device_info.supports_tso;
+        capabilities.rss = device_info.supports_rss;
 
         let mut extended_capabilities = ExtendedNetworkCapabilities::default();
-        extended_capabilities.base = capabilities.clone();
+        extended_capabilities.base = capabilities;
         extended_capabilities.max_bandwidth_mbps = device_info.max_speed_mbps;
         extended_capabilities.wake_on_lan = true;
         extended_capabilities.energy_efficient = matches!(device_info.generation, E1000Generation::E1000E | E1000Generation::I350 | E1000Generation::I210 | E1000Generation::I225);
@@ -427,13 +357,13 @@ impl IntelE1000Driver {
         Self {
             name,
             device_info: Some(device_info),
-            state: DeviceState::Down,
+            state: DeviceState::Uninitialized,
             capabilities,
             extended_capabilities,
             stats: EnhancedNetworkStats::default(),
             base_addr,
             irq,
-            mac_address: MacAddress::ZERO,
+            mac_address: [0; 6],
             power_state: PowerState::D0,
             wol_config: WakeOnLanConfig::default(),
             current_speed: 0,
@@ -592,7 +522,7 @@ impl IntelE1000Driver {
                 (rah & 0xFF) as u8,
                 ((rah >> 8) & 0xFF) as u8,
             ];
-            self.mac_address = MacAddress::new(mac_bytes);
+            self.mac_address = mac_bytes;
         } else {
             // Generate a default MAC address with Intel OUI
             self.mac_address = super::utils::generate_mac_with_vendor(super::utils::INTEL_OUI);
@@ -1010,12 +940,12 @@ impl NetworkDriver for IntelE1000Driver {
         // Initialize transmit subsystem
         self.init_tx()?;
 
-        self.state = DeviceState::Initialized;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn start(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Initialized {
+        if self.state != DeviceState::Stopped {
             return Err(NetworkError::InvalidState);
         }
 
@@ -1025,7 +955,7 @@ impl NetworkDriver for IntelE1000Driver {
                   (1 << 2);  // Link status change
         self.write_reg(E1000Reg::Ims, ims);
 
-        self.state = DeviceState::Up;
+        self.state = DeviceState::Running;
         Ok(())
     }
 
@@ -1037,12 +967,12 @@ impl NetworkDriver for IntelE1000Driver {
         self.write_reg(E1000Reg::Rctl, 0);
         self.write_reg(E1000Reg::Tctl, 0);
 
-        self.state = DeviceState::Down;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn send_packet(&mut self, packet: &[u8]) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
+        if self.state != DeviceState::Running {
             return Err(NetworkError::NetworkUnreachable);
         }
 
@@ -1050,7 +980,7 @@ impl NetworkDriver for IntelE1000Driver {
     }
 
     fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError> {
-        if self.state != DeviceState::Up {
+        if self.state != DeviceState::Running {
             return Ok(None);
         }
 
@@ -1065,7 +995,7 @@ impl NetworkDriver for IntelE1000Driver {
         self.mac_address = mac;
 
         // Write MAC address to hardware registers
-        let mac_bytes = mac.as_bytes();
+        let mac_bytes = &mac;
         let ral = ((mac_bytes[3] as u32) << 24) |
                   ((mac_bytes[2] as u32) << 16) |
                   ((mac_bytes[1] as u32) << 8) |
@@ -1096,6 +1026,13 @@ impl NetworkDriver for IntelE1000Driver {
             tx_errors: self.stats.tx_errors,
             rx_dropped: self.stats.rx_dropped,
             tx_dropped: self.stats.tx_dropped,
+            packets_sent: self.stats.tx_packets,
+            packets_received: self.stats.rx_packets,
+            bytes_sent: self.stats.tx_bytes,
+            bytes_received: self.stats.rx_bytes,
+            send_errors: self.stats.tx_errors,
+            receive_errors: self.stats.rx_errors,
+            dropped_packets: self.stats.rx_dropped + self.stats.tx_dropped,
         }
     }
 

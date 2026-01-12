@@ -203,6 +203,16 @@ impl Drop for DmaBuffer {
     }
 }
 
+// SAFETY: DmaBuffer owns its memory and ensures proper cleanup via Drop.
+// The raw pointer is just an implementation detail for DMA memory management.
+// Multiple threads can safely own separate DmaBuffers.
+unsafe impl Send for DmaBuffer {}
+
+// SAFETY: DmaBuffer provides interior mutability through its methods,
+// and all access to the underlying memory is properly synchronized.
+// Multiple threads can safely share references to a DmaBuffer.
+unsafe impl Sync for DmaBuffer {}
+
 /// DMA ring buffer for efficient packet processing
 #[derive(Debug)]
 pub struct DmaRing {
@@ -479,26 +489,30 @@ impl DmaOperations {
 
         // Get next completed descriptor
         if let Some((descriptor, dma_buffer)) = rx_ring.get_rx_descriptor() {
+            // Extract needed data from descriptor before releasing the borrow
+            let has_error = descriptor.has_error();
+            let length = descriptor.length;
+
+            // Reset descriptor for reuse
+            descriptor.status = 0;
+            descriptor.flags = 1 << 2; // Ready for reception
+
             // Check for errors
-            if descriptor.has_error() {
+            if has_error {
                 stats.rx_errors += 1;
                 rx_ring.advance_head();
                 return Err(NetworkError::InvalidPacket);
             }
 
             // Parse received packet
-            let packet = self.formatter.parse_rx_packet(dma_buffer, descriptor.length)?;
-
-            // Reset descriptor for reuse
-            descriptor.status = 0;
-            descriptor.flags = 1 << 2; // Ready for reception
+            let packet = self.formatter.parse_rx_packet(dma_buffer, length)?;
 
             // Advance head pointer
             rx_ring.advance_head();
 
             // Update statistics
             stats.rx_packets += 1;
-            stats.rx_bytes += descriptor.length as u64;
+            stats.rx_bytes += length as u64;
 
             Ok(Some(packet))
         } else {

@@ -484,7 +484,7 @@ pub fn get_scheduler_stats() -> SchedulingStats {
 pub fn timer_tick(delta_ms: u64) {
     let process_manager = super::get_process_manager();
     let mut scheduler = process_manager.scheduler.lock();
-    scheduler.tick(delta_ms);
+    scheduler.tick();
 }
 
 /// Yield the CPU to the next process (cooperative multitasking)

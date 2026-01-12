@@ -213,7 +213,7 @@ fn test_memory_protection() -> TestResult {
             // Try to write to read-only memory (should fail)
             // In a real test, this would trigger a page fault
             // For now, we'll simulate the protection check
-            if !crate::memory::check_memory_access(addr, 4, true, 3).unwrap_or(false) {
+            if !crate::memory::check_memory_access(addr.as_u64() as usize, 4, true, 3).unwrap_or(false) {
                 protections_working += 1;
             }
             let _ = crate::memory::deallocate_memory(addr);
@@ -241,7 +241,7 @@ fn test_memory_protection() -> TestResult {
     ) {
         Ok(addr) => {
             // Try to execute non-executable memory (should fail)
-            if !crate::memory::check_memory_access(addr, 4, false, 3).unwrap_or(false) {
+            if !crate::memory::check_memory_access(addr.as_u64() as usize, 4, false, 3).unwrap_or(false) {
                 protections_working += 1;
             }
             let _ = crate::memory::deallocate_memory(addr);
@@ -274,8 +274,8 @@ fn test_memory_protection() -> TestResult {
     ) {
         Ok(addr) => {
             // Try to access the guard page (should fail)
-            let guard_addr = addr + 4096; // Second page is guard
-            if !crate::memory::check_memory_access(guard_addr, 4, false, 3).unwrap_or(false) {
+            let guard_addr = addr + 4096u64; // Second page is guard
+            if !crate::memory::check_memory_access(guard_addr.as_u64() as usize, 4, false, 3).unwrap_or(false) {
                 protections_working += 1;
             }
             let _ = crate::memory::deallocate_memory(addr);
@@ -300,7 +300,7 @@ fn test_syscall_security() -> TestResult {
     // Test 1: Invalid syscall number
     let invalid_syscall_context = SyscallContext {
         pid: 1,
-        syscall_num: unsafe { core::mem::transmute(9999u32) }, // Invalid syscall
+        syscall_num: SyscallNumber::Invalid, // Invalid syscall
         args: [0; 6],
         user_sp: 0x7fff_0000,
         user_ip: 0x4000_0000,
@@ -404,14 +404,14 @@ fn test_buffer_overflow_protection() -> TestResult {
     // Memory manager provides guard pages and stack protection
     use crate::memory::get_memory_manager;
     if let Some(memory_manager) = get_memory_manager() {
-        let _manager = memory_manager.lock();
+        let _manager = memory_manager;
         // Memory manager active means stack protection is available
         protections_active += 1;
     }
 
     // Test 2: Heap overflow detection - verify memory manager has protection
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         use crate::memory::MemoryZone;
         if let Some(_frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
             // Successful allocation means heap guards are in place

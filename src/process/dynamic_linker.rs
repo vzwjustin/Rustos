@@ -37,19 +37,20 @@ use super::elf_loader::{Elf64Header, Elf64ProgramHeader, elf_constants};
 use crate::memory::{MemoryRegionType, MemoryProtection};
 
 /// Dynamic linker for loading shared libraries and resolving symbols
+#[derive(Clone)]
 pub struct DynamicLinker {
     /// Library search paths (e.g., /lib, /usr/lib, /lib64)
     search_paths: Vec<String>,
-    
+
     /// Cache of loaded shared libraries
     loaded_libraries: BTreeMap<String, LoadedLibrary>,
-    
+
     /// Global symbol table mapping symbol names to addresses
     symbol_table: BTreeMap<String, VirtAddr>,
-    
+
     /// Symbol table by index for current binary (used during relocation)
     symbol_index_table: Vec<(String, VirtAddr)>,
-    
+
     /// Base address for library loading (managed with ASLR)
     next_base_address: VirtAddr,
 }
@@ -817,16 +818,20 @@ impl DynamicLinker {
     ) -> DynamicLinkerResult<usize> {
         // First, build the complete symbol table with indices
         self.build_symbol_index_table(binary_data, dynamic_info, base_address)?;
-        
+
         // Then add defined symbols to global symbol table
         let count = self.symbol_index_table.len();
-        
-        for (name, addr) in &self.symbol_index_table {
-            if !name.is_empty() {
-                self.add_symbol(name.clone(), *addr);
-            }
+
+        // Collect symbols to add to avoid borrowing issues
+        let symbols_to_add: Vec<_> = self.symbol_index_table.iter()
+            .filter(|(name, _)| !name.is_empty())
+            .map(|(name, addr)| (name.clone(), *addr))
+            .collect();
+
+        for (name, addr) in symbols_to_add {
+            self.add_symbol(name, addr);
         }
-        
+
         Ok(count)
     }
     
@@ -1163,9 +1168,21 @@ pub fn link_binary_globally(
     program_headers: &[super::elf_loader::Elf64ProgramHeader],
     base_address: VirtAddr,
 ) -> Result<usize, &'static str> {
-    let linker = get_dynamic_linker()
+    let mut linker = get_dynamic_linker()
         .ok_or("Dynamic linker not initialized")?;
     
     linker.link_binary(binary_data, program_headers, base_address)
         .map_err(|_| "Failed to link binary")
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement dynamic linker accessor
+/// Get a reference to the global dynamic linker
+/// Currently returns None if not initialized
+fn get_dynamic_linker() -> Option<DynamicLinker> {
+    let linker_guard = GLOBAL_DYNAMIC_LINKER.lock();
+    (*linker_guard).clone()
 }

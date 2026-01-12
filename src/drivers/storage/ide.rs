@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageError, StorageStats};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::vec;
 use core::arch::asm;
 
@@ -646,9 +647,11 @@ impl IdeDriver {
     /// Get device model string
     pub fn get_model(&self) -> Option<String> {
         if let Some(ref identify) = self.identify_data {
+            // SAFETY: identify is a packed struct representing IDE on-disk format.
+            // We use addr_of! to avoid creating misaligned references.
             let model_bytes: &[u8] = unsafe {
                 core::slice::from_raw_parts(
-                    identify.model_number.as_ptr() as *const u8,
+                    core::ptr::addr_of!(identify.model_number) as *const u8,
                     40
                 )
             };
@@ -676,9 +679,11 @@ impl IdeDriver {
     /// Get device serial number
     pub fn get_serial(&self) -> Option<String> {
         if let Some(ref identify) = self.identify_data {
+            // SAFETY: identify is a packed struct representing IDE on-disk format.
+            // We use addr_of! to avoid creating misaligned references.
             let serial_bytes: &[u8] = unsafe {
                 core::slice::from_raw_parts(
-                    identify.serial_number.as_ptr() as *const u8,
+                    core::ptr::addr_of!(identify.serial_number) as *const u8,
                     20
                 )
             };
@@ -884,7 +889,7 @@ impl StorageDriver for IdeDriver {
         Ok(Vec::new())
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         if !self.capabilities.supports_smart {
             return Err(StorageError::NotSupported);
         }

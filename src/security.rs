@@ -4,6 +4,7 @@
 //! access control, and security context management
 
 use alloc::{vec::Vec, vec};
+use alloc::string::ToString;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 use spin::RwLock;
@@ -663,11 +664,12 @@ pub enum HashType {
 pub struct Hash {
     pub algorithm: HashType,
     pub digest: Vec<u8>,
+    pub bytes: Vec<u8>,
 }
 
 impl Hash {
     pub fn new(algorithm: HashType, digest: Vec<u8>) -> Self {
-        Self { algorithm, digest }
+        Self { algorithm, bytes: digest.clone(), digest }
     }
 
     /// Get hash as hex string
@@ -923,15 +925,17 @@ fn is_rdrand_supported() -> bool {
             let mut ebx = 0u32;
             let mut ecx = 0u32;
             let mut edx = 0u32;
-            
+
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = inout(reg) ebx,
                 inout("eax") eax,
-                inout("ebx") ebx,
                 inout("ecx") ecx,
                 inout("edx") edx,
             );
-            
+
             // RDRAND support is indicated by ECX bit 30
             (ecx & (1 << 30)) != 0
         }
@@ -998,15 +1002,17 @@ fn is_rdseed_supported() -> bool {
             let mut ebx = 0u32;
             let mut ecx = 0u32;
             let mut edx = 0u32;
-            
+
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = inout(reg) ebx,
                 inout("eax") eax,
-                inout("ebx") ebx,
                 inout("ecx") ecx,
                 inout("edx") edx,
             );
-            
+
             // RDSEED support is indicated by EBX bit 18
             (ebx & (1 << 18)) != 0
         }
@@ -2237,8 +2243,8 @@ pub fn derive_key(password: &[u8], salt: &[u8], iterations: u32, key_length: usi
 fn pbkdf2_sha256(password: &[u8], salt: &[u8], iterations: u32, output: &mut [u8]) {
     let hlen = 32; // SHA-256 output length
     let dklen = output.len();
-    
-    if dklen > (2u64.pow(32) - 1) * hlen as u64 {
+
+    if dklen > ((2u64.pow(32) - 1) * hlen as u64) as usize {
         panic!("Derived key too long");
     }
     
@@ -2463,4 +2469,152 @@ pub fn get_global_key(name: &str) -> Result<Vec<u8>, &'static str> {
     } else {
         Err("Key store not initialized")
     }
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement hardware RNG detection
+/// Check if hardware random number generator is available
+/// Currently returns false - needs CPU feature detection (RDRAND/RDSEED)
+pub fn hardware_rng_available() -> bool {
+    false
+}
+
+/// TODO: Implement entropy pool status tracking
+/// Check if the entropy pool has been properly seeded
+/// Currently returns false - needs entropy collection implementation
+pub fn entropy_pool_seeded() -> bool {
+    false
+}
+
+/// TODO: Implement as wrapper or replace with secure_random_bytes
+/// Get random bytes - currently delegates to secure_random_bytes
+pub fn get_random_bytes(buffer: &mut [u8]) -> Result<(), &'static str> {
+    secure_random_bytes(buffer)
+}
+
+/// TODO: Implement key generation with proper algorithm support
+/// Generate a cryptographic key
+/// Currently returns an error - needs algorithm-specific key generation
+pub fn generate_key(bits: usize) -> Result<Vec<u8>, &'static str> {
+    let _ = bits;
+    Err("Key generation not yet implemented")
+}
+
+/// TODO: Implement secure key storage detection
+/// Check if secure key storage (TPM, HSM, or secure enclave) is available
+/// Currently returns false - needs hardware security module detection
+pub fn secure_key_storage_available() -> bool {
+    false
+}
+
+/// TODO: Implement secure memory zeroing
+/// Securely zero out sensitive data to prevent memory disclosure
+/// Currently performs basic zeroing - needs compiler barrier to prevent optimization
+#[inline(never)]
+pub fn secure_zero(data: &mut [u8]) {
+    // Basic implementation - TODO: add memory barrier to prevent optimization
+    for byte in data.iter_mut() {
+        *byte = 0;
+    }
+    // TODO: Add compiler fence or volatile write to ensure zeroing isn't optimized away
+}
+
+/// TODO: Implement SHA-256 hashing
+/// Compute SHA-256 hash of data
+/// Currently returns an error - needs SHA-256 implementation
+pub fn hash_sha256(data: &[u8]) -> Result<Vec<u8>, &'static str> {
+    // Check if we can use the existing compute_hash function
+    let hash = compute_hash(HashType::Sha256, data);
+    Ok(hash.bytes.to_vec())
+}
+
+/// TODO: Implement AES-256 encryption
+/// Encrypt data using AES-256
+/// Currently returns an error - needs proper key and IV handling
+pub fn encrypt_aes256(plaintext: &[u8], key: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if key.len() != 32 {
+        return Err("Invalid key size for AES-256");
+    }
+
+    // TODO: Use the existing encrypt_data function with proper key wrapping
+    let encryption_key = EncryptionKey::new(EncryptionAlgorithm::Aes256Gcm, key.to_vec());
+    let result = encrypt_data(&encryption_key, plaintext)?;
+
+    // Return ciphertext with nonce and tag concatenated
+    let mut output = Vec::new();
+    output.extend_from_slice(&result.ciphertext);
+    output.extend_from_slice(&result.nonce);
+    if let Some(tag) = result.tag {
+        output.extend_from_slice(&tag);
+    }
+    Ok(output)
+}
+
+/// TODO: Implement AES-256 decryption
+/// Decrypt data using AES-256
+/// Currently returns an error - needs proper ciphertext parsing
+pub fn decrypt_aes256(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if key.len() != 32 {
+        return Err("Invalid key size for AES-256");
+    }
+
+    // TODO: Properly parse ciphertext, nonce, and tag from input
+    // This is a stub implementation that will fail
+    Err("AES-256 decryption not yet fully implemented")
+}
+
+/// TODO: Implement asymmetric key pair generation
+/// Generate a public/private key pair
+/// Currently returns an error - needs RSA or Ed25519 implementation
+pub fn generate_keypair() -> Result<(Vec<u8>, Vec<u8>), &'static str> {
+    Err("Keypair generation not yet implemented")
+}
+
+/// TODO: Implement message signing
+/// Sign a message with a private key
+/// Currently returns an error - needs digital signature implementation
+pub fn sign_message(message: &[u8], private_key: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let _ = (message, private_key);
+    Err("Message signing not yet implemented")
+}
+
+/// TODO: Implement signature verification
+/// Verify a message signature with a public key
+/// Currently returns an error - needs digital signature verification
+pub fn verify_signature(message: &[u8], signature: &[u8], public_key: &[u8]) -> Result<bool, &'static str> {
+    let _ = (message, signature, public_key);
+    Err("Signature verification not yet implemented")
+}
+
+/// TODO: Implement stack canary status detection
+/// Check if stack canaries are enabled
+/// Currently returns false - needs runtime stack protection detection
+pub fn stack_canaries_enabled() -> bool {
+    // TODO: Check if stack canaries are enabled at runtime
+    // This would require examining the GDT or checking for stack guard pages
+    false
+}
+
+/// TODO: Implement ASLR status detection
+/// Check if Address Space Layout Randomization is enabled
+/// Currently returns false - needs kernel ASLR status detection
+pub fn aslr_enabled() -> bool {
+    // TODO: Check if ASLR is enabled for the kernel
+    // This would require examining memory layout or kernel boot parameters
+    false
+}
+
+/// Helper function: encrypt wrapper for internal use
+/// Wraps encrypt_data for compatibility with legacy code
+fn encrypt(key: &EncryptionKey, plaintext: &[u8]) -> Result<EncryptionResult, &'static str> {
+    encrypt_data(key, plaintext)
+}
+
+/// Helper function: decrypt wrapper for internal use
+/// Wraps decrypt_data for compatibility with legacy code
+fn decrypt(key: &EncryptionKey, ciphertext: &EncryptionResult) -> Result<Vec<u8>, &'static str> {
+    decrypt_data(key, ciphertext)
 }

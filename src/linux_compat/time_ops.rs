@@ -18,7 +18,7 @@ pub fn init_time_operations() {
 
 /// Get number of time operations performed
 pub fn get_operation_count() -> u64 {
-    TIME_OPS_COUNT.load(Ordering::Relaxed);
+    TIME_OPS_COUNT.load(Ordering::Relaxed)
 }
 
 /// Increment operation counter

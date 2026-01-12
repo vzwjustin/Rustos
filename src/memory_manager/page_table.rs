@@ -214,7 +214,7 @@ impl PageTable {
     /// Map a virtual address to a physical address
     pub fn map(&mut self, virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> VmResult<()> {
         let page = Page::<Size4KiB>::containing_address(virt);
-        let frame = PhysFrame::containing_address(phys);
+        let frame: PhysFrame<Size4KiB> = PhysFrame::containing_address(phys);
         let x64_flags = flags.to_x64_flags();
 
         // In a real implementation, this would use the x86_64 Mapper trait
@@ -311,7 +311,7 @@ impl PageTableManager {
     pub fn flush_tlb(&self, virt: VirtAddr) {
         use x86_64::instructions::tlb;
         unsafe {
-            tlb::flush(Page::<Size4KiB>::containing_address(virt));
+            tlb::flush(virt);
         }
     }
 

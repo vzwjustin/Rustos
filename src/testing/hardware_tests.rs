@@ -133,10 +133,11 @@ fn test_acpi_hardware_discovery() -> TestResult {
             if !tables.is_empty() {
                 acpi_features_working += 1;
             }
-            
+
             // Test specific table parsing
-            for table in tables {
-                match table.signature.as_str() {
+            for table in &tables.descriptors {
+                let sig_str = core::str::from_utf8(&table.signature).unwrap_or("");
+                match sig_str {
                     "MADT" => {
                         if crate::acpi::parse_madt().is_ok() {
                             acpi_features_working += 1;
@@ -207,9 +208,8 @@ fn test_hardware_interrupt_handling() -> TestResult {
         }
         Err(_) => {
             // Try PIC fallback
-            if crate::interrupts::init_pic().is_ok() {
-                interrupt_tests_passed += 1;
-            }
+            crate::interrupts::init_pic();
+            interrupt_tests_passed += 1;
         }
     }
 
@@ -329,11 +329,7 @@ fn test_timer_scheduling() -> bool {
     let timer_id = crate::time::schedule_timer(1_000_000, || { // 1 second
         TIMER_FIRED.store(true, Ordering::Release);
     });
-    
-    if timer_id.is_err() {
-        return false;
-    }
-    
+
     // Wait for timer to fire (with timeout)
     let start_time = crate::time::uptime_us();
     while !TIMER_FIRED.load(Ordering::Acquire) {
@@ -342,13 +338,11 @@ fn test_timer_scheduling() -> bool {
         }
         unsafe { core::arch::asm!("hlt"); }
     }
-    
+
     let timer_fired = TIMER_FIRED.load(Ordering::Acquire);
-    
+
     // Clean up
-    if let Ok(id) = timer_id {
-        let _ = crate::time::cancel_timer(id);
-    }
+    let _ = crate::time::cancel_timer(timer_id);
     
     timer_fired
 }

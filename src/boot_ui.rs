@@ -6,8 +6,9 @@
 
 use crate::vga_buffer::{Color, VGA_WRITER};
 use crate::{print, println};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::format;
+use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 
 /// Boot stage enumeration for tracking progress
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -392,9 +393,11 @@ fn detect_cpu_info() -> CpuInfo {
             let mut vendor_b: u32;
             let mut vendor_c: u32;
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "xchg {tmp:e}, ebx",
+                tmp = out(reg) vendor_a,
                 in("eax") 0u32,
-                out("ebx") vendor_a,
                 out("ecx") vendor_c,
                 out("edx") vendor_b,
                 options(nostack, preserves_flags)
@@ -415,11 +418,13 @@ fn detect_cpu_info() -> CpuInfo {
             let features_ecx: u32;
             let features_edx: u32;
             core::arch::asm!(
+                "mov {tmp:e}, ebx",
                 "cpuid",
+                "mov ebx, {tmp:e}",
+                tmp = out(reg) _,
                 in("eax") 1u32,
                 out("ecx") features_ecx,
                 out("edx") features_edx,
-                out("ebx") _,
                 options(nostack, preserves_flags)
             );
 
@@ -717,7 +722,7 @@ fn identify_network_devices() -> usize {
 
 /// Initialize memory management with progress display
 pub fn memory_init_progress(
-    memory_map: &bootloader::MemoryMap,
+    memory_map: &MemoryMap,
     physical_offset: x86_64::VirtAddr,
 ) -> MemoryInitResult {
     begin_stage(BootStage::MemoryInit, 4);
@@ -750,8 +755,15 @@ pub fn memory_init_progress(
     // Initialize heap
     update_substage(3, "Setting up kernel heap...");
     if result.allocator_ready {
-        report_success("Kernel heap initialized (100 MB reserved)");
-        result.heap_ready = true;
+        match crate::memory_basic::init_heap(&crate::ALLOCATOR) {
+            Ok(_) => {
+                report_success("Kernel heap initialized (100 MB reserved)");
+                result.heap_ready = true;
+            }
+            Err(e) => {
+                report_error("Heap init", e);
+            }
+        }
     }
 
     // Test allocation
@@ -773,7 +785,7 @@ pub fn memory_init_progress(
     result
 }
 
-fn parse_memory_map(memory_map: &bootloader::MemoryMap) -> (usize, usize, usize) {
+fn parse_memory_map(memory_map: &MemoryMap) -> (usize, usize, usize) {
     let mut total: usize = 0;
     let mut usable: usize = 0;
     let regions = memory_map.iter().count();
@@ -781,7 +793,7 @@ fn parse_memory_map(memory_map: &bootloader::MemoryMap) -> (usize, usize, usize)
     for region in memory_map.iter() {
         let size = region.range.end_addr() as usize - region.range.start_addr() as usize;
         total += size;
-        if region.region_type == bootloader::MemoryRegionType::Usable {
+        if region.region_type == MemoryRegionType::Usable {
             usable += size;
         }
     }
@@ -1317,7 +1329,7 @@ fn set_color(foreground: Color, background: Color) {
 
 /// Print text centered on screen
 fn print_centered(text: &str) {
-    let width = 80;
+    let width: usize = 80;
     let padding = (width.saturating_sub(text.len())) / 2;
     for _ in 0..padding {
         print!(" ");

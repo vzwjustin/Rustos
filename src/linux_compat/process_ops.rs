@@ -10,8 +10,12 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use super::types::*;
 use super::{LinuxResult, LinuxError};
 
+// Re-export types for external access
+pub use super::types::Rusage;
+
 // Import process management infrastructure
-use crate::process::{self, Pid, Priority, ProcessState};
+use crate::process::{self, Priority, ProcessState};
+use crate::process::Pid as KernelPid;
 use crate::process_manager;
 
 /// Operation counter for statistics
@@ -41,7 +45,7 @@ fn current_pcb() -> LinuxResult<process::ProcessControlBlock> {
 }
 
 /// Get any process PCB by PID
-fn get_pcb(pid: Pid) -> LinuxResult<process::ProcessControlBlock> {
+fn get_pcb(pid: KernelPid) -> LinuxResult<process::ProcessControlBlock> {
     let process_manager = process::get_process_manager();
     process_manager.get_process(pid)
         .ok_or(LinuxError::ESRCH)
@@ -64,6 +68,7 @@ pub fn fork() -> LinuxResult<Pid> {
     // - File descriptor duplication
     // - Scheduler integration
     process_mgr.fork(parent_pid)
+        .map(|child_pid| child_pid as i32)
         .map_err(|_| LinuxError::EAGAIN)
 }
 
@@ -103,7 +108,7 @@ pub fn wait(status: *mut i32) -> LinuxResult<Pid> {
             if !status.is_null() {
                 unsafe { *status = exit_status; }
             }
-            Ok(child_pid)
+            Ok(child_pid as i32)
         }
         Err("No child processes") => Err(LinuxError::ECHILD),
         Err("Would block waiting for child") => Err(LinuxError::EAGAIN),
@@ -127,7 +132,7 @@ pub fn waitpid(pid: Pid, status: *mut i32, _options: i32) -> LinuxResult<Pid> {
         // Wait for any child - delegate to wait()
         return wait(status);
     } else {
-        pid as Pid
+        pid as u32 as KernelPid
     };
 
     // Use process_manager waitpid
@@ -136,13 +141,37 @@ pub fn waitpid(pid: Pid, status: *mut i32, _options: i32) -> LinuxResult<Pid> {
             if !status.is_null() {
                 unsafe { *status = exit_status; }
             }
-            Ok(target_pid)
+            Ok(target_pid as i32)
         }
         Err("Not a child of this process") => Err(LinuxError::ECHILD),
         Err("Child process not found") => Err(LinuxError::ECHILD),
         Err("Would block waiting for specific child") => Err(LinuxError::EAGAIN),
         Err(_) => Err(LinuxError::EINVAL),
     }
+}
+
+/// execve - execute program (Linux-compatible syscall interface)
+pub fn execve(_filename: *const u8, _argv: *const *const u8, _envp: *const *const u8) -> LinuxResult<i32> {
+    inc_ops();
+    // TODO: Parse filename, argv, envp and call exec()
+    // For now, return ENOSYS
+    Err(LinuxError::ENOSYS)
+}
+
+/// wait4 - wait for process to change state (Linux-compatible syscall interface)
+pub fn wait4(pid: Pid, wstatus: *mut i32, options: i32, rusage: *mut Rusage) -> LinuxResult<Pid> {
+    inc_ops();
+
+    // For now, ignore rusage (resource usage statistics)
+    if !rusage.is_null() {
+        // TODO: Collect and return resource usage statistics
+        unsafe {
+            core::ptr::write_bytes(rusage, 0, 1);
+        }
+    }
+
+    // Delegate to waitpid
+    waitpid(pid, wstatus, options)
 }
 
 /// exit - terminate current process
@@ -173,7 +202,7 @@ pub fn exit(status: i32) -> ! {
 /// getpid - get process ID
 pub fn getpid() -> Pid {
     inc_ops();
-    process::current_pid()
+    process::current_pid() as Pid
 }
 
 /// getppid - get parent process ID
@@ -181,7 +210,7 @@ pub fn getppid() -> Pid {
     inc_ops();
 
     match current_pcb() {
-        Ok(pcb) => pcb.parent_pid.unwrap_or(0),
+        Ok(pcb) => pcb.parent_pid.unwrap_or(0) as Pid,
         Err(_) => 0, // Return 0 if cannot get PCB
     }
 }
@@ -282,7 +311,7 @@ pub fn getpgid(pid: Pid) -> LinuxResult<Pid> {
     let target_pid = if pid == 0 {
         process::current_pid()
     } else {
-        pid as Pid
+        pid as u32
     };
 
     // Verify process exists
@@ -290,7 +319,7 @@ pub fn getpgid(pid: Pid) -> LinuxResult<Pid> {
 
     // TODO: Add pgid field to ProcessControlBlock
     // For now, return the PID itself as pgid
-    Ok(target_pid)
+    Ok(target_pid as i32)
 }
 
 /// setpgid - set process group ID
@@ -304,7 +333,7 @@ pub fn setpgid(pid: Pid, pgid: Pid) -> LinuxResult<i32> {
     let target_pid = if pid == 0 {
         process::current_pid()
     } else {
-        pid as Pid
+        pid as u32
     };
 
     // Verify process exists
@@ -321,7 +350,7 @@ pub fn getsid(pid: Pid) -> LinuxResult<Pid> {
     let target_pid = if pid == 0 {
         process::current_pid()
     } else {
-        pid as Pid
+        pid as u32
     };
 
     // Verify process exists
@@ -343,7 +372,7 @@ pub fn setsid() -> LinuxResult<Pid> {
     // TODO: Add session/pgid fields to PCB
 
     // Return new session ID (same as process ID)
-    Ok(pid)
+    Ok(pid as i32)
 }
 
 /// getpgrp - get process group
@@ -352,7 +381,7 @@ pub fn getpgrp() -> Pid {
 
     // TODO: Get from PCB pgid field
     // For now, return current PID
-    process::current_pid()
+    process::current_pid() as i32
 }
 
 //
@@ -382,7 +411,7 @@ pub fn getpriority(which: i32, who: i32) -> LinuxResult<i32> {
             let target_pid = if who == 0 {
                 process::current_pid()
             } else {
-                who as Pid
+                who as u32
             };
 
             // Get priority from process manager
@@ -427,7 +456,7 @@ pub fn setpriority(which: i32, who: i32, prio: i32) -> LinuxResult<i32> {
             let target_pid = if who == 0 {
                 process::current_pid()
             } else {
-                who as Pid
+                who as u32
             };
 
             // Check permissions - only root can increase priority
@@ -494,7 +523,7 @@ pub fn sched_setaffinity(pid: Pid, cpusetsize: usize, mask: *const u8) -> LinuxR
     let target_pid = if pid == 0 {
         process::current_pid()
     } else {
-        pid as Pid
+        pid as u32
     };
 
     // Verify process exists
@@ -535,7 +564,7 @@ pub fn sched_getaffinity(pid: Pid, cpusetsize: usize, mask: *mut u8) -> LinuxRes
     let target_pid = if pid == 0 {
         process::current_pid()
     } else {
-        pid as Pid
+        pid as u32
     };
 
     // Get CPU affinity from PCB

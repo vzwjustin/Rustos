@@ -3,6 +3,8 @@
 //! Hardware-accelerated framebuffer management for desktop UI rendering.
 //! Supports GPU-accelerated operations, multiple pixel formats, and high-resolution displays.
 
+use alloc::vec::Vec;
+
 /// Maximum supported resolution width
 pub const MAX_WIDTH: usize = 7680; // 8K width
 /// Maximum supported resolution height
@@ -435,7 +437,7 @@ impl SimpleFramebuffer {
                 core::ptr::write_volatile(gfx_base.add(0x40), pixel_value); // Fill color
                 core::ptr::write_volatile(gfx_base.add(0x44), self.buffer as u32); // Destination address
                 core::ptr::write_volatile(gfx_base.add(0x48), self.stride as u32); // Destination pitch
-                core::ptr::write_volatile(gfx_base.add(0x4C), (self.height << 16) | self.width); // Dimensions
+                core::ptr::write_volatile(gfx_base.add(0x4C), ((self.height << 16) | self.width) as u32); // Dimensions
                 core::ptr::write_volatile(gfx_base.add(0x50), 0xF0); // ROP: PATCOPY (solid fill)
                 
                 // Start the operation
@@ -587,7 +589,7 @@ impl SimpleFramebuffer {
                 core::ptr::write_volatile(gfx_base.add(0x40), pixel_value);
                 core::ptr::write_volatile(gfx_base.add(0x44), dest_addr as u32);
                 core::ptr::write_volatile(gfx_base.add(0x48), self.stride as u32);
-                core::ptr::write_volatile(gfx_base.add(0x4C), (rect.height << 16) | rect.width);
+                core::ptr::write_volatile(gfx_base.add(0x4C), ((rect.height << 16) | rect.width) as u32);
                 core::ptr::write_volatile(gfx_base.add(0x50), 0xF0); // PATCOPY
                 
                 // Start operation
@@ -813,12 +815,12 @@ fn configure_display_timing(width: usize, height: usize) -> Result<(), &'static 
             let hsync_start = width + 40;
             let hsync_end = width + 120;
             
-            core::ptr::write_volatile(display_base.add(0x60000 / 4), 
-                ((htotal - 1) << 16) | (width - 1));
-            core::ptr::write_volatile(display_base.add(0x60004 / 4), 
-                ((hblank_end - 1) << 16) | (hblank_start - 1));
-            core::ptr::write_volatile(display_base.add(0x60008 / 4), 
-                ((hsync_end - 1) << 16) | (hsync_start - 1));
+            core::ptr::write_volatile(display_base.add(0x60000 / 4),
+                (((htotal - 1) << 16) | (width - 1)) as u32);
+            core::ptr::write_volatile(display_base.add(0x60004 / 4),
+                (((hblank_end - 1) << 16) | (hblank_start - 1)) as u32);
+            core::ptr::write_volatile(display_base.add(0x60008 / 4),
+                (((hsync_end - 1) << 16) | (hsync_start - 1)) as u32);
             
             // Configure vertical timing
             let vtotal = height + 45; // Add blanking intervals
@@ -827,12 +829,12 @@ fn configure_display_timing(width: usize, height: usize) -> Result<(), &'static 
             let vsync_start = height + 10;
             let vsync_end = height + 12;
             
-            core::ptr::write_volatile(display_base.add(0x6000C / 4), 
-                ((vtotal - 1) << 16) | (height - 1));
-            core::ptr::write_volatile(display_base.add(0x60010 / 4), 
-                ((vblank_end - 1) << 16) | (vblank_start - 1));
-            core::ptr::write_volatile(display_base.add(0x60014 / 4), 
-                ((vsync_end - 1) << 16) | (vsync_start - 1));
+            core::ptr::write_volatile(display_base.add(0x6000C / 4),
+                (((vtotal - 1) << 16) | (height - 1)) as u32);
+            core::ptr::write_volatile(display_base.add(0x60010 / 4),
+                (((vblank_end - 1) << 16) | (vblank_start - 1)) as u32);
+            core::ptr::write_volatile(display_base.add(0x60014 / 4),
+                (((vsync_end - 1) << 16) | (vsync_start - 1)) as u32);
         }
     }
     
@@ -928,11 +930,12 @@ fn enable_hardware_acceleration(info: &FramebufferInfo) -> Result<(), &'static s
     if info.gpu_accelerated {
         // Initialize 2D acceleration engine
         initialize_2d_engine()?;
-        
+
         // Initialize 3D acceleration if available
-        if let Some(gpu_manager) = crate::gpu::get_gpu_manager() {
-            gpu_manager.initialize_acceleration(info)?;
-        }
+        // TODO: Implement mutable GPU manager access
+        // if let Some(gpu_manager) = crate::gpu::get_gpu_manager() {
+        //     gpu_manager.initialize_acceleration(info)?;
+        // }
     }
     
     Ok(())
@@ -1425,7 +1428,7 @@ mod gpu_interface {
                 // Set up color buffer
                 core::ptr::write_volatile(cb_base.add(0x0), buffer as u32); // CB_COLOR0_BASE
                 core::ptr::write_volatile(cb_base.add(0x1), (stride / 4) as u32); // CB_COLOR0_PITCH
-                core::ptr::write_volatile(cb_base.add(0x2), ((height - 1) << 16) | (width - 1)); // CB_COLOR0_SLICE
+                core::ptr::write_volatile(cb_base.add(0x2), (((height - 1) << 16) | (width - 1)) as u32); // CB_COLOR0_SLICE
                 
                 // Set clear color
                 core::ptr::write_volatile(cb_base.add(0x10), color); // CB_COLOR0_CLEAR_WORD0
@@ -1451,12 +1454,12 @@ mod gpu_interface {
                 // Set up partial clear
                 core::ptr::write_volatile(cb_base.add(0x0), dest_addr as u32);
                 core::ptr::write_volatile(cb_base.add(0x1), (stride / 4) as u32);
-                core::ptr::write_volatile(cb_base.add(0x2), ((height - 1) << 16) | (width - 1));
+                core::ptr::write_volatile(cb_base.add(0x2), (((height - 1) << 16) | (width - 1)) as u32);
                 core::ptr::write_volatile(cb_base.add(0x10), color);
-                
+
                 // Set scissor rectangle
-                core::ptr::write_volatile(cb_base.add(0x30), (y << 16) | x); // Scissor top-left
-                core::ptr::write_volatile(cb_base.add(0x31), ((y + height) << 16) | (x + width)); // Scissor bottom-right
+                core::ptr::write_volatile(cb_base.add(0x30), ((y << 16) | x) as u32); // Scissor top-left
+                core::ptr::write_volatile(cb_base.add(0x31), (((y + height) << 16) | (x + width)) as u32); // Scissor bottom-right
                 
                 // Enable scissor and trigger clear
                 core::ptr::write_volatile(cb_base.add(0x32), 0x1); // Enable scissor
@@ -1535,7 +1538,7 @@ mod gpu_interface {
     // Hardware detection functions
     fn detect_gpu_hardware() -> Option<(GPUVendor, u16, u64)> {
         // Scan PCI bus for GPU devices
-        for bus in 0..256 {
+        for bus in 0..=255 {
             for device in 0..32 {
                 for function in 0..8 {
                     if let Some((vendor_id, device_id, reg_base)) = read_pci_device(bus, device, function) {

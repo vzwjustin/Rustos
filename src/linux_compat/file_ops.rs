@@ -11,6 +11,9 @@ use super::types::*;
 use super::{LinuxResult, LinuxError};
 use crate::vfs::{self, OpenFlags as VfsOpenFlags, SeekFrom, VfsError, InodeType};
 
+// Re-export types for external access
+pub use super::types::Stat;
+
 /// Operation counter for statistics
 static FILE_OPS_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -213,7 +216,7 @@ pub fn fstat(fd: Fd, statbuf: *mut Stat) -> LinuxResult<i32> {
     }
 
     // Get actual file status from VFS
-    match vfs::vfs_fstat(fd as usize) {
+    match vfs::vfs_fstat(fd) {
         Ok(vfs_stat) => {
             unsafe {
                 *statbuf = Stat::new();
@@ -225,7 +228,7 @@ pub fn fstat(fd: Fd, statbuf: *mut Stat) -> LinuxResult<i32> {
                 (*statbuf).st_gid = vfs_stat.gid;
                 (*statbuf).st_size = vfs_stat.size as Off;
                 (*statbuf).st_blksize = 4096;
-                (*statbuf).st_blocks = (vfs_stat.size + 511) / 512;
+                (*statbuf).st_blocks = ((vfs_stat.size + 511) / 512) as i64;
                 (*statbuf).st_atime = vfs_stat.atime as Time;
                 (*statbuf).st_mtime = vfs_stat.mtime as Time;
                 (*statbuf).st_ctime = vfs_stat.ctime as Time;
@@ -258,7 +261,7 @@ pub fn stat(path: *const u8, statbuf: *mut Stat) -> LinuxResult<i32> {
                 (*statbuf).st_gid = vfs_stat.gid;
                 (*statbuf).st_size = vfs_stat.size as Off;
                 (*statbuf).st_blksize = 4096;
-                (*statbuf).st_blocks = (vfs_stat.size + 511) / 512;
+                (*statbuf).st_blocks = ((vfs_stat.size + 511) / 512) as i64;
                 (*statbuf).st_atime = vfs_stat.atime as Time;
                 (*statbuf).st_mtime = vfs_stat.mtime as Time;
                 (*statbuf).st_ctime = vfs_stat.ctime as Time;
@@ -372,7 +375,7 @@ pub fn dup2(oldfd: Fd, newfd: Fd) -> LinuxResult<Fd> {
 
     if oldfd == newfd {
         // Verify oldfd is valid
-        match vfs::vfs_fstat(oldfd as usize) {
+        match vfs::vfs_fstat(oldfd) {
             Ok(_) => return Ok(newfd),
             Err(e) => return Err(vfs_error_to_linux(e)),
         }

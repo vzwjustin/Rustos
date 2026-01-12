@@ -219,14 +219,14 @@ fn syscall_msgget(key: i32, msgflg: i32) -> i64 {
 }
 
 fn syscall_msgsnd(msqid: i32, msgp: *const u8, msgsz: usize, msgflg: i32) -> i64 {
-    match crate::linux_compat::ipc_ops::msgsnd(msqid, msgp as *const crate::linux_compat::ipc_ops::MsgBuf, msgsz, msgflg) {
+    match crate::linux_compat::ipc_ops::msgsnd(msqid, msgp, msgsz, msgflg) {
         Ok(_) => 0,
         Err(e) => -(e as i64),
     }
 }
 
 fn syscall_msgrcv(msqid: i32, msgp: *mut u8, msgsz: usize, msgtyp: i64, msgflg: i32) -> i64 {
-    match crate::linux_compat::ipc_ops::msgrcv(msqid, msgp as *mut crate::linux_compat::ipc_ops::MsgBuf, msgsz, msgtyp, msgflg) {
+    match crate::linux_compat::ipc_ops::msgrcv(msqid, msgp, msgsz, msgtyp, msgflg) {
         Ok(n) => n as i64,
         Err(e) => -(e as i64),
     }
@@ -240,7 +240,7 @@ fn syscall_semget(key: i32, nsems: i32, semflg: i32) -> i64 {
 }
 
 fn syscall_semop(semid: i32, sops: *mut u8, nsops: usize) -> i64 {
-    match crate::linux_compat::ipc_ops::semop(semid, sops as *mut crate::linux_compat::ipc_ops::Sembuf, nsops) {
+    match crate::linux_compat::ipc_ops::semop(semid, sops, nsops) {
         Ok(_) => 0,
         Err(e) => -(e as i64),
     }

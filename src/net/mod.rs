@@ -224,6 +224,16 @@ pub enum NetworkError {
     InsufficientMemory,
     /// Buffer too small
     BufferTooSmall,
+    /// Protocol error
+    ProtocolError,
+    /// Not connected
+    NotConnected,
+    /// Not implemented
+    NotImplemented,
+    /// Internal error
+    InternalError,
+    /// Resource not found
+    NotFound,
 }
 
 impl fmt::Display for NetworkError {
@@ -248,6 +258,11 @@ impl fmt::Display for NetworkError {
             NetworkError::InvalidState => write!(f, "Invalid state"),
             NetworkError::InsufficientMemory => write!(f, "Insufficient memory"),
             NetworkError::BufferTooSmall => write!(f, "Buffer too small"),
+            NetworkError::ProtocolError => write!(f, "Protocol error"),
+            NetworkError::NotConnected => write!(f, "Not connected"),
+            NetworkError::NotImplemented => write!(f, "Not implemented"),
+            NetworkError::InternalError => write!(f, "Internal error"),
+            NetworkError::NotFound => write!(f, "Resource not found"),
         }
     }
 }
@@ -610,15 +625,15 @@ impl NetworkStack {
         let interfaces = self.interfaces.read();
         let interface = interfaces.get(&interface_name)
             .ok_or(NetworkError::InvalidAddress)?;
-        
+
         let src_mac = interface.mac_address;
-        let src_ip = interface.ip_addresses.first()
+        let src_ip = *interface.ip_addresses.first()
             .ok_or(NetworkError::InvalidAddress)?;
 
         drop(interfaces);
 
         // Create ARP request packet
-        let arp_packet = self.create_arp_request_packet(src_mac, *src_ip, *target_ip)?;
+        let arp_packet = self.create_arp_request_packet(src_mac, src_ip, *target_ip)?;
         
         // Send through interface
         self.send_packet(&interface_name, arp_packet)?;
@@ -785,11 +800,13 @@ impl NetworkStack {
             return Err(NetworkError::BufferOverflow);
         }
 
+        let packet_len = packet_data.len();
+
         drop(interfaces);
 
         // Send through device manager
         let result = device::device_manager().send_packet(interface_name, packet);
-        
+
         // Update interface statistics
         {
             let mut interfaces = self.interfaces.write();
@@ -797,7 +814,7 @@ impl NetworkStack {
                 match &result {
                     Ok(_) => {
                         interface.stats.tx_packets += 1;
-                        interface.stats.tx_bytes += packet_data.len() as u64;
+                        interface.stats.tx_bytes += packet_len as u64;
                     }
                     Err(_) => {
                         interface.stats.tx_errors += 1;
@@ -837,6 +854,13 @@ impl NetworkStack {
             total_rx_bytes,
             total_tx_packets,
             total_tx_bytes,
+            packets_sent: total_tx_packets,
+            packets_received: total_rx_packets,
+            bytes_sent: total_tx_bytes,
+            bytes_received: total_rx_bytes,
+            send_errors: 0,
+            receive_errors: 0,
+            dropped_packets: 0,
         }
     }
 }
@@ -852,6 +876,13 @@ pub struct NetworkStats {
     pub total_rx_bytes: u64,
     pub total_tx_packets: u64,
     pub total_tx_bytes: u64,
+    pub packets_sent: u64,
+    pub packets_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub send_errors: u64,
+    pub receive_errors: u64,
+    pub dropped_packets: u64,
 }
 
 lazy_static! {
@@ -895,4 +926,32 @@ pub fn init() -> NetworkResult<()> {
 /// Get the global network stack
 pub fn network_stack() -> &'static NetworkStack {
     &NETWORK_STACK
+}
+
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Get interface statistics (stub implementation)
+/// Returns (rx_packets, tx_packets, rx_bytes, tx_bytes)
+pub fn get_interface_stats() -> Result<(u64, u64, u64, u64), &'static str> {
+    // Get stats from the default interface or aggregate all interfaces
+    let stack = network_stack();
+    let interfaces = stack.interfaces.read();
+
+    if interfaces.is_empty() {
+        return Ok((0, 0, 0, 0));
+    }
+
+    // Aggregate stats from all interfaces
+    let (mut total_rx_packets, mut total_tx_packets, mut total_rx_bytes, mut total_tx_bytes) = (0, 0, 0, 0);
+
+    for interface in interfaces.values() {
+        total_rx_packets += interface.stats.rx_packets;
+        total_tx_packets += interface.stats.tx_packets;
+        total_rx_bytes += interface.stats.rx_bytes;
+        total_tx_bytes += interface.stats.tx_bytes;
+    }
+
+    Ok((total_rx_packets, total_tx_packets, total_rx_bytes, total_tx_bytes))
 }

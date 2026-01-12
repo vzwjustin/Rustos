@@ -271,7 +271,7 @@ pub fn example_thread_stack() -> Result<(), super::VmError> {
 
     // Initialize stack with guard value
     unsafe {
-        *stack_bottom = 0xDEADBEEF;
+        *(stack_bottom as *mut u32) = 0xDEADBEEF;
     }
 
     // Clean up

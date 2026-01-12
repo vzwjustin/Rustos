@@ -166,7 +166,7 @@ fn test_long_term_stability() -> TestResult {
             last_health_check = current_time;
             
             // Check for system degradation
-            if health_status.overall_health < 0.7 {
+            if health_status.overall_health() < 0.7 {
                 stability_metrics.record_degradation("System health below 70%");
             }
         }
@@ -447,7 +447,7 @@ impl StabilityMetrics {
     }
 
     fn record_health_check(&mut self, health: crate::health::HealthStatus) {
-        self.health_checks.push(health.overall_health);
+        self.health_checks.push(health.overall_health());
     }
 
     fn record_issue(&mut self, issue: &str) {
@@ -480,7 +480,7 @@ fn create_system_load() {
     // Create some memory allocation activity using real memory manager
     use crate::memory::{get_memory_manager, MemoryZone};
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         if let Some(frame) = manager.allocate_frame_in_zone(MemoryZone::Normal) {
             manager.deallocate_frame(frame, MemoryZone::Normal);
         }
@@ -579,7 +579,8 @@ fn measure_current_performance() -> BTreeMap<String, f64> {
     let ctx_start = crate::performance_monitor::read_tsc();
     // Simulate minimal context switch overhead by measuring scheduler decision time
     if let Some(scheduler) = crate::scheduler::get_scheduler() {
-        let _current = scheduler.lock().current_process();
+        let guard: spin::MutexGuard<crate::scheduler::CpuScheduler> = scheduler.lock();
+        let _current = guard.current_process;
     }
     let ctx_end = crate::performance_monitor::read_tsc();
     let context_switch_us = (ctx_end - ctx_start) as f64 / 3000.0;
@@ -589,10 +590,10 @@ fn measure_current_performance() -> BTreeMap<String, f64> {
     let mem_start = crate::performance_monitor::read_tsc();
     use crate::memory::{get_memory_manager, MemoryZone};
     if let Some(memory_manager) = get_memory_manager() {
-        let mut manager = memory_manager.lock();
+        let manager = memory_manager;
         let frame = manager.allocate_frame_in_zone(MemoryZone::Normal);
         if let Some(f) = frame {
-            manager.deallocate_frame(f);
+            manager.deallocate_frame(f, MemoryZone::Normal);
         }
     }
     let mem_end = crate::performance_monitor::read_tsc();
@@ -659,7 +660,8 @@ pub fn run_system_validation(config: SystemValidationConfig) -> SystemValidation
     
     // Get real concurrent process count from scheduler
     let max_concurrent_processes = if let Some(scheduler) = crate::scheduler::get_scheduler() {
-        scheduler.lock().process_count()
+        let guard: spin::MutexGuard<crate::scheduler::CpuScheduler> = scheduler.lock();
+        guard.process_count()
     } else {
         1 // At least kernel process
     };

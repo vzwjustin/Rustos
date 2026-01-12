@@ -18,7 +18,7 @@ pub fn init_signal_operations() {
 
 /// Get number of signal operations performed
 pub fn get_operation_count() -> u64 {
-    SIGNAL_OPS_COUNT.load(Ordering::Relaxed);
+    SIGNAL_OPS_COUNT.load(Ordering::Relaxed)
 }
 
 /// Increment operation counter

@@ -50,6 +50,8 @@ pub enum IoCompletionStatus {
 pub struct IoRequest {
     /// Unique request ID
     pub request_id: u64,
+    /// Request ID (alias)
+    pub id: u64,
     /// Type of I/O operation
     pub request_type: IoRequestType,
     /// Priority level
@@ -58,6 +60,14 @@ pub struct IoRequest {
     pub target: u32,
     /// Data buffer offset
     pub offset: u64,
+    /// Data buffer
+    pub buffer: Option<u64>,
+    /// Buffer size
+    pub size: usize,
+    /// Device ID
+    pub device_id: u32,
+    /// Waker for async operations
+    pub waker: Option<u64>,
     /// Completion status
     pub completion_status: IoCompletionStatus,
 }
@@ -91,6 +101,8 @@ impl IoScheduler {
         *next_id += 1;
         drop(next_id);
 
+        let request_id = request.request_id; // Save before moving
+
         let mut queue = self.request_queue.lock();
         queue.push_back(request);
         drop(queue);
@@ -98,7 +110,7 @@ impl IoScheduler {
         let mut total = self.total_requests.lock();
         *total += 1;
 
-        request.request_id
+        request_id
     }
 
     /// Process pending I/O requests
@@ -148,6 +160,14 @@ pub struct NetworkPacket {
     pub packet_type: PacketType,
     /// Packet data (simplified - just size for now)
     pub data_len: usize,
+    /// Packet data buffer
+    pub data: [u8; 1536],
+    /// Packet length
+    pub length: usize,
+    /// Timestamp
+    pub timestamp: u64,
+    /// Padding
+    pub _padding: [u8; 0],
 }
 
 /// Network packet processor for optimized network I/O
@@ -280,4 +300,16 @@ mod tests {
         assert_eq!(processed, 0);
         assert_eq!(bytes, 0);
     }
+}
+
+// =============================================================================
+// STUB FUNCTIONS - TODO: Implement production versions
+// =============================================================================
+
+/// TODO: Implement I/O statistics collection
+/// Get I/O statistics for monitoring
+/// Currently returns nothing - needs proper statistics gathering
+pub fn get_io_statistics() {
+    // TODO: Return aggregated I/O statistics across all schedulers
+    // For now, this is a no-op
 }

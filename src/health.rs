@@ -4,7 +4,7 @@
 use core::sync::atomic::{AtomicU64, AtomicU32, AtomicBool, Ordering};
 use alloc::vec::Vec;
 use alloc::vec;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use spin::{Mutex, RwLock};
 use lazy_static::lazy_static;
 use crate::error::{KernelError, ErrorSeverity, ErrorContext, ERROR_MANAGER};
@@ -67,6 +67,17 @@ impl HealthStatus {
             50..=69 => HealthStatus::Fair,
             30..=49 => HealthStatus::Poor,
             _ => HealthStatus::Critical,
+        }
+    }
+
+    /// Get the numeric health score (0.0 to 1.0)
+    pub fn overall_health(&self) -> f32 {
+        match self {
+            HealthStatus::Excellent => 0.95,
+            HealthStatus::Good => 0.80,
+            HealthStatus::Fair => 0.60,
+            HealthStatus::Poor => 0.40,
+            HealthStatus::Critical => 0.20,
         }
     }
 }
@@ -207,7 +218,7 @@ impl HealthMonitor {
 
     fn calculate_error_rate(&self) -> u32 {
         // Get error rate from error manager
-        if let Ok(manager) = ERROR_MANAGER.try_lock() {
+        if let Some(manager) = ERROR_MANAGER.try_lock() {
             let history = manager.get_error_history();
             let current_time = crate::time::get_system_time_ms();
             
@@ -319,7 +330,7 @@ impl HealthMonitor {
             alloc::format!("{}: {}", condition, value),
         );
 
-        if let Ok(mut manager) = ERROR_MANAGER.try_lock() {
+        if let Some(mut manager) = ERROR_MANAGER.try_lock() {
             let _ = manager.handle_error(error_context);
         }
     }
@@ -366,7 +377,7 @@ impl HealthMonitor {
     pub fn get_system_diagnostics(&self) -> SystemDiagnostics {
         let metrics = self.get_health_metrics();
         let components = self.get_component_health();
-        let error_history = if let Ok(manager) = ERROR_MANAGER.try_lock() {
+        let error_history = if let Some(manager) = ERROR_MANAGER.try_lock() {
             manager.get_error_history().len()
         } else {
             0

@@ -400,6 +400,20 @@ pub fn window_manager() -> Option<&'static WindowManager> {
     None // Simplified - would return actual window manager
 }
 
+// =============================================================================
+// Wrapper functions for legacy API compatibility
+// =============================================================================
+
+/// Handle scroll event (stub implementation)
+pub fn handle_scroll(x: i32, y: i32, delta: i32) {
+    // TODO: Implement scroll handling
+    let _ = (x, y, delta);
+    // This would typically:
+    // 1. Get the window at position (x, y)
+    // 2. Send scroll event with delta to that window
+    // 3. Update the display if needed
+}
+
 // Simplified test functions (without #[cfg(feature = "std-tests")] // Disabled: #[cfg(feature = "disabled-tests")] // #[cfg(feature = "disabled-tests")] // #[test] attributes to avoid no_std issues)
 #[cfg(test)]
 mod tests {

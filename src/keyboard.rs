@@ -46,15 +46,17 @@ pub enum SpecialKey {
     F8 = 0x42,
     F9 = 0x43,
     F10 = 0x44,
+    F11 = 0x57,
+    F12 = 0x58,
     NumLock = 0x45,
     ScrollLock = 0x46,
     Home = 0x47,
-    UpArrow = 0x48,
+    ArrowUp = 0x48,
     PageUp = 0x49,
-    LeftArrow = 0x4B,
-    RightArrow = 0x4D,
+    ArrowLeft = 0x4B,
+    ArrowRight = 0x4D,
     End = 0x4F,
-    DownArrow = 0x50,
+    ArrowDown = 0x50,
     PageDown = 0x51,
     Insert = 0x52,
     Delete = 0x53,
@@ -84,15 +86,17 @@ impl SpecialKey {
             0x42 => Some(Self::F8),
             0x43 => Some(Self::F9),
             0x44 => Some(Self::F10),
+            0x57 => Some(Self::F11),
+            0x58 => Some(Self::F12),
             0x45 => Some(Self::NumLock),
             0x46 => Some(Self::ScrollLock),
             0x47 => Some(Self::Home),
-            0x48 => Some(Self::UpArrow),
+            0x48 => Some(Self::ArrowUp),
             0x49 => Some(Self::PageUp),
-            0x4B => Some(Self::LeftArrow),
-            0x4D => Some(Self::RightArrow),
+            0x4B => Some(Self::ArrowLeft),
+            0x4D => Some(Self::ArrowRight),
             0x4F => Some(Self::End),
-            0x50 => Some(Self::DownArrow),
+            0x50 => Some(Self::ArrowDown),
             0x51 => Some(Self::PageDown),
             0x52 => Some(Self::Insert),
             0x53 => Some(Self::Delete),
@@ -264,30 +268,30 @@ impl KeyboardHandler {
                         match raw_key {
                             KeyCode::ArrowUp => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::UpArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowUp)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::UpArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowUp)
                                 }
                             }
                             KeyCode::ArrowDown => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::DownArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowDown)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::DownArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowDown)
                                 }
                             }
                             KeyCode::ArrowLeft => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::LeftArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowLeft)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::LeftArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowLeft)
                                 }
                             }
                             KeyCode::ArrowRight => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::RightArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowRight)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::RightArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowRight)
                                 }
                             }
                             KeyCode::Escape => {
@@ -589,7 +593,7 @@ mod tests {
     #[test]
     fn test_special_key_conversion() {
         assert_eq!(SpecialKey::from_scancode(0x01), Some(SpecialKey::Escape));
-        assert_eq!(SpecialKey::from_scancode(0x48), Some(SpecialKey::UpArrow));
+        assert_eq!(SpecialKey::from_scancode(0x48), Some(SpecialKey::ArrowUp));
         assert_eq!(SpecialKey::from_scancode(0xFF), None);
     }
 

@@ -26,7 +26,7 @@ pub fn init_ipc_operations() {
 
 /// Get number of IPC operations performed
 pub fn get_operation_count() -> u64 {
-    IPC_OPS_COUNT.load(Ordering::Relaxed);
+    IPC_OPS_COUNT.load(Ordering::Relaxed)
 }
 
 /// Increment operation counter
@@ -331,6 +331,7 @@ pub fn semget(key: Key, nsems: i32, semflg: i32) -> LinuxResult<SemId> {
 
 /// Semaphore operation structure (struct sembuf in Linux)
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 struct SemBuf {
     sem_num: u16,   // Semaphore number
     sem_op: i16,    // Semaphore operation
@@ -714,6 +715,7 @@ pub fn timerfd_create(clockid: i32, flags: i32) -> LinuxResult<Fd> {
 
 /// Timer specification structure (struct itimerspec)
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 struct ITimerSpec {
     it_interval_sec: u64,
     it_interval_nsec: u64,

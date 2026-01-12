@@ -3,11 +3,12 @@
 //! Driver for Broadcom NetXtreme BCM5700/5701/5702/5703/5704/5705/5714/5715/5717/5718/5719/5720
 //! and other Broadcom Gigabit Ethernet controllers.
 
-use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, NetworkDriver, DeviceState, DeviceCapabilities};
+use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, NetworkDriver, DeviceState, DeviceCapabilities, DeviceType, NetworkStats};
 use crate::net::{NetworkError, MacAddress};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 /// Broadcom device information
 #[derive(Debug, Clone, Copy)]
@@ -140,23 +141,16 @@ impl BroadcomDriver {
         irq: u8,
     ) -> Self {
         let mut capabilities = DeviceCapabilities::default();
-        capabilities.mtu = 1500;
+        capabilities.max_mtu = 9000;
         capabilities.hw_checksum = true;
         capabilities.scatter_gather = true;
-        capabilities.vlan_support = true;
+        capabilities.vlan = true;
         capabilities.jumbo_frames = true;
-        capabilities.multicast_filter = true;
-        capabilities.max_packet_size = 9000;
-        capabilities.link_speed = device_info.max_speed_mbps;
-        capabilities.full_duplex = true;
-
-        if device_info.supports_rss {
-            capabilities.rx_queues = device_info.queue_count;
-            capabilities.tx_queues = device_info.queue_count;
-        }
+        capabilities.tso = device_info.supports_tso;
+        capabilities.rss = device_info.supports_rss;
 
         let mut extended_capabilities = ExtendedNetworkCapabilities::default();
-        extended_capabilities.base = capabilities.clone();
+        extended_capabilities.base = capabilities;
         extended_capabilities.max_bandwidth_mbps = device_info.max_speed_mbps;
         extended_capabilities.wake_on_lan = true;
         extended_capabilities.energy_efficient = true;
@@ -166,13 +160,13 @@ impl BroadcomDriver {
         Self {
             name,
             device_info: Some(device_info),
-            state: DeviceState::Down,
+            state: DeviceState::Stopped,
             capabilities,
             extended_capabilities,
             stats: EnhancedNetworkStats::default(),
             base_addr,
             irq,
-            mac_address: MacAddress::ZERO,
+            mac_address: [0, 0, 0, 0, 0, 0],
             current_speed: 0,
             full_duplex: false,
         }
@@ -226,7 +220,7 @@ impl BroadcomDriver {
                 ((mac_low >> 8) & 0xFF) as u8,
                 (mac_low & 0xFF) as u8,
             ];
-            self.mac_address = MacAddress::new(mac_bytes);
+            self.mac_address = mac_bytes;
         } else {
             // Generate default MAC with Broadcom OUI
             self.mac_address = super::utils::generate_mac_with_vendor(super::utils::BROADCOM_OUI);
@@ -268,7 +262,7 @@ impl BroadcomDriver {
         self.write_reg(BCM_MAC_MODE, mac_mode);
 
         // Set MAC address
-        let mac_bytes = self.mac_address.as_bytes();
+        let mac_bytes = &self.mac_address;
         let mac_high = ((mac_bytes[0] as u32) << 8) | (mac_bytes[1] as u32);
         let mac_low = ((mac_bytes[2] as u32) << 24) |
                       ((mac_bytes[3] as u32) << 16) |
@@ -332,8 +326,8 @@ impl NetworkDriver for BroadcomDriver {
         self.mac_address
     }
 
-    fn capabilities(&self) -> DeviceCapabilities {
-        self.capabilities.clone()
+    fn capabilities(&self) -> &DeviceCapabilities {
+        &self.capabilities
     }
 
     fn state(&self) -> DeviceState {
@@ -341,7 +335,7 @@ impl NetworkDriver for BroadcomDriver {
     }
 
     fn init(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Testing;
+        self.state = DeviceState::Initializing;
 
         // Reset controller
         self.reset_controller()?;
@@ -354,12 +348,12 @@ impl NetworkDriver for BroadcomDriver {
         self.init_rx()?;
         self.init_tx()?;
 
-        self.state = DeviceState::Down;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn start(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Down {
+        if self.state != DeviceState::Stopped {
             return Err(NetworkError::InvalidState);
         }
 
@@ -368,12 +362,12 @@ impl NetworkDriver for BroadcomDriver {
         mac_mode |= 0x800000; // Enable MAC
         self.write_reg(BCM_MAC_MODE, mac_mode);
 
-        self.state = DeviceState::Up;
+        self.state = DeviceState::Running;
         Ok(())
     }
 
     fn stop(&mut self) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
+        if self.state != DeviceState::Running {
             return Err(NetworkError::InvalidState);
         }
 
@@ -382,23 +376,23 @@ impl NetworkDriver for BroadcomDriver {
         mac_mode &= !0x800000; // Disable MAC
         self.write_reg(BCM_MAC_MODE, mac_mode);
 
-        self.state = DeviceState::Down;
+        self.state = DeviceState::Stopped;
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), NetworkError> {
-        self.state = DeviceState::Resetting;
+        self.state = DeviceState::Initializing;
         self.reset_controller()?;
         self.init()?;
         Ok(())
     }
 
     fn send_packet(&mut self, data: &[u8]) -> Result<(), NetworkError> {
-        if self.state != DeviceState::Up {
-            return Err(NetworkError::InterfaceDown);
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::InvalidState);
         }
 
-        if data.len() > self.capabilities.max_packet_size as usize {
+        if data.len() > self.capabilities.max_mtu as usize {
             return Err(NetworkError::BufferTooSmall);
         }
 
@@ -409,18 +403,36 @@ impl NetworkDriver for BroadcomDriver {
         Ok(())
     }
 
-    fn receive_packet(&mut self) -> Option<Vec<u8>> {
-        if self.state != DeviceState::Up {
-            return None;
+    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError> {
+        if self.state != DeviceState::Running {
+            return Ok(None);
         }
 
         // Simulate packet reception
-        None
+        Ok(None)
     }
 
     fn is_link_up(&self) -> bool {
         let mac_status = self.read_reg(BCM_MAC_STATUS);
         (mac_status & 0x01) != 0 // Link up bit
+    }
+
+    fn get_link_status(&self) -> (bool, u32, bool) {
+        // Returns (link_up, speed_mbps, full_duplex)
+        let link_up = self.is_link_up();
+
+        if !link_up {
+            return (false, 0, false);
+        }
+
+        // Read link speed and duplex from MAC status register
+        let mac_status = self.read_reg(BCM_MAC_STATUS);
+        let speed = if (mac_status & 0x10) != 0 { 1000 }
+                   else if (mac_status & 0x08) != 0 { 100 }
+                   else { 10 };
+        let full_duplex = (mac_status & 0x02) != 0;
+
+        (true, speed, full_duplex)
     }
 
     fn set_promiscuous(&mut self, enabled: bool) -> Result<(), NetworkError> {
@@ -446,6 +458,14 @@ impl NetworkDriver for BroadcomDriver {
 
     fn get_stats(&self) -> NetworkStats {
         NetworkStats {
+            rx_packets: self.stats.rx_packets,
+            tx_packets: self.stats.tx_packets,
+            rx_bytes: self.stats.rx_bytes,
+            tx_bytes: self.stats.tx_bytes,
+            rx_errors: self.stats.rx_errors,
+            tx_errors: self.stats.tx_errors,
+            rx_dropped: self.stats.rx_dropped,
+            tx_dropped: self.stats.tx_dropped,
             packets_sent: self.stats.tx_packets,
             packets_received: self.stats.rx_packets,
             bytes_sent: self.stats.tx_bytes,
@@ -460,12 +480,12 @@ impl NetworkDriver for BroadcomDriver {
         if mtu < 68 || mtu > 9000 {
             return Err(NetworkError::InvalidPacket);
         }
-        self.capabilities.mtu = mtu;
+        self.capabilities.max_mtu = mtu;
         Ok(())
     }
 
     fn get_mtu(&self) -> u16 {
-        self.capabilities.mtu
+        self.capabilities.max_mtu
     }
 
     fn handle_interrupt(&mut self) -> Result<(), NetworkError> {

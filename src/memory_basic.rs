@@ -81,3 +81,11 @@ pub fn get_memory_stats() -> Result<MemoryStats, &'static str> {
         GLOBAL_MEMORY_STATS.clone().ok_or("Memory statistics not available")
     }
 }
+
+/// Initialize the kernel heap allocator
+pub fn init_heap(allocator: &linked_list_allocator::LockedHeap) -> Result<(), &'static str> {
+    unsafe {
+        allocator.lock().init(KERNEL_HEAP_START, KERNEL_HEAP_SIZE);
+    }
+    Ok(())
+}

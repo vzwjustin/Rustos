@@ -500,40 +500,41 @@ impl HotplugManager {
             use crate::pci;
             // Get all PCI devices
             let pci_devices = pci::get_all_devices();
-            let current_devices = self.devices.read();
 
-            for device in pci_devices {
-                // Create a unique device ID string from PCI location
-                let pci_device_id = format!("pci_{:02x}:{:02x}.{:x}_{:04x}:{:04x}",
-                    device.bus, device.device, device.function,
-                    device.vendor_id, device.device_id);
+            // Collect new devices to add
+            let mut devices_to_add = Vec::new();
 
-                // If device not in our registry, it's new
-                if !current_devices.contains_key(&pci_device_id) {
-                    new_devices += 1;
-                    drop(current_devices);
+            {
+                let current_devices = self.devices.read();
+                for device in pci_devices {
+                    // Create a unique device ID string from PCI location
+                    let pci_device_id = format!("pci_{:02x}:{:02x}.{:x}_{:04x}:{:04x}",
+                        device.bus, device.device, device.function,
+                        device.vendor_id, device.device_id);
 
-                    // Create device info
-                    let device_info = DeviceInfo::new(
-                        device.vendor_id,
-                        device.device_id,
-                        device.class as u8,
-                        device.subclass,
-                        device.prog_if,
-                        device.revision,
-                        device.bus,
-                        device.device,
-                        device.function,
-                        device.name.clone(),
-                    );
-
-                    // Add the device using existing mechanism
-                    let _ = self.add_device(device_info);
-
-                    // Re-acquire read lock for next iteration
-                    let current_devices = self.devices.read();
-                    let _ = current_devices; // Suppress warning
+                    // If device not in our registry, it's new
+                    if !current_devices.contains_key(&pci_device_id) {
+                        new_devices += 1;
+                        devices_to_add.push(device);
+                    }
                 }
+            } // Release read lock
+
+            // Add new devices outside the lock
+            for device in devices_to_add {
+                let device_info = DeviceInfo::new(
+                    device.vendor_id,
+                    device.device_id,
+                    device.class as u8,
+                    device.subclass,
+                    device.prog_if,
+                    device.revision,
+                    device.bus,
+                    device.device,
+                    device.function,
+                    device.name.clone(),
+                );
+                let _ = self.add_device(device_info);
             }
         }
 

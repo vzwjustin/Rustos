@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageError, StorageStats};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::{format, vec};
 use core::mem;
 use core::ptr;
@@ -145,6 +146,7 @@ pub enum NvmeOpcode {
 
 /// NVMe I/O command opcodes
 #[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 pub enum NvmeIoOpcode {
     /// Flush
     Flush = 0x00,
@@ -476,7 +478,7 @@ impl NvmeDriver {
     }
 
     /// Write to register with u32 offset (for doorbells)
-    fn write_reg(&self, offset: u32, value: u32) {
+    fn write_reg_raw(&self, offset: u32, value: u32) {
         unsafe {
             ptr::write_volatile((self.base_addr + offset as u64) as *mut u32, value);
         }
@@ -532,7 +534,9 @@ impl NvmeDriver {
         self.write_reg(NvmeReg::Cc, cc as u64);
 
         // Set up admin queues (simplified - would need real DMA memory)
-        self.write_reg(NvmeReg::Aqa, ((self.max_queue_entries - 1) << 16) | (self.max_queue_entries - 1));
+        let acq_size = (self.max_queue_entries - 1) as u32;
+        let asq_size = (self.max_queue_entries - 1) as u32;
+        self.write_reg(NvmeReg::Aqa, ((acq_size << 16) | asq_size) as u64);
 
         // Enable controller
         cc |= NvmeCc::EN.bits();
@@ -676,7 +680,7 @@ impl NvmeDriver {
         
         // 3. Ring submission queue doorbell
         let doorbell_offset = 0x1000 + (0 * 2 * (4 << self.doorbell_stride)); // Queue 0 submission doorbell
-        self.write_reg(doorbell_offset, self.current_sq_tail as u32);
+        self.write_reg_raw(doorbell_offset as u32, self.current_sq_tail as u32);
         
         // 4. Wait for completion queue entry
         let mut timeout = 1000000; // Timeout counter
@@ -713,7 +717,7 @@ impl NvmeDriver {
         
         // 5. Ring completion queue doorbell
         let cq_doorbell_offset = 0x1000 + (0 * 2 + 1) * (4 << self.doorbell_stride); // Queue 0 completion doorbell
-        self.write_reg(cq_doorbell_offset, self.current_cq_head as u32);
+        self.write_reg_raw(cq_doorbell_offset as u32, self.current_cq_head as u32);
         
         // Update statistics
         match opcode {
@@ -881,7 +885,7 @@ impl StorageDriver for NvmeDriver {
         Err(StorageError::NotSupported)
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         if !self.capabilities.supports_smart {
             return Err(StorageError::NotSupported);
         }
