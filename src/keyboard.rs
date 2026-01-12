@@ -51,16 +51,12 @@ pub enum SpecialKey {
     NumLock = 0x45,
     ScrollLock = 0x46,
     Home = 0x47,
-    UpArrow = 0x48,
-    ArrowUp = 0x48,      // Preferred alias matching main.rs usage
+    ArrowUp = 0x48,
     PageUp = 0x49,
-    LeftArrow = 0x4B,
-    ArrowLeft = 0x4B,    // Preferred alias matching main.rs usage
-    RightArrow = 0x4D,
-    ArrowRight = 0x4D,   // Preferred alias matching main.rs usage
+    ArrowLeft = 0x4B,
+    ArrowRight = 0x4D,
     End = 0x4F,
-    DownArrow = 0x50,
-    ArrowDown = 0x50,    // Preferred alias matching main.rs usage
+    ArrowDown = 0x50,
     PageDown = 0x51,
     Insert = 0x52,
     Delete = 0x53,
@@ -272,30 +268,30 @@ impl KeyboardHandler {
                         match raw_key {
                             KeyCode::ArrowUp => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::UpArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowUp)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::UpArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowUp)
                                 }
                             }
                             KeyCode::ArrowDown => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::DownArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowDown)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::DownArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowDown)
                                 }
                             }
                             KeyCode::ArrowLeft => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::LeftArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowLeft)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::LeftArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowLeft)
                                 }
                             }
                             KeyCode::ArrowRight => {
                                 if is_release {
-                                    KeyEvent::SpecialRelease(SpecialKey::RightArrow)
+                                    KeyEvent::SpecialRelease(SpecialKey::ArrowRight)
                                 } else {
-                                    KeyEvent::SpecialPress(SpecialKey::RightArrow)
+                                    KeyEvent::SpecialPress(SpecialKey::ArrowRight)
                                 }
                             }
                             KeyCode::Escape => {
@@ -597,7 +593,7 @@ mod tests {
     #[test]
     fn test_special_key_conversion() {
         assert_eq!(SpecialKey::from_scancode(0x01), Some(SpecialKey::Escape));
-        assert_eq!(SpecialKey::from_scancode(0x48), Some(SpecialKey::UpArrow));
+        assert_eq!(SpecialKey::from_scancode(0x48), Some(SpecialKey::ArrowUp));
         assert_eq!(SpecialKey::from_scancode(0xFF), None);
     }
 

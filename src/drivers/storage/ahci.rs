@@ -110,8 +110,8 @@ pub const AHCI_DEVICE_IDS: &[AhciDeviceId] = &[
     AhciDeviceId { vendor_id: 0x1039, device_id: 0x1185, name: "SiS 968 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT },
 
     // ATI/AMD legacy
-    AhciDeviceId { vendor_id: 0x1002, device_id: 0x4379, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT | AhciQuirks::NO_MSI },
-    AhciDeviceId { vendor_id: 0x1002, device_id: 0x437a, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::NO_64BIT | AhciQuirks::NO_MSI },
+    AhciDeviceId { vendor_id: 0x1002, device_id: 0x4379, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::from_bits_truncate(AhciQuirks::NO_64BIT.bits() | AhciQuirks::NO_MSI.bits()) },
+    AhciDeviceId { vendor_id: 0x1002, device_id: 0x437a, name: "ATI SB400 AHCI", supports_64bit: false, max_ports: 4, quirks: AhciQuirks::from_bits_truncate(AhciQuirks::NO_64BIT.bits() | AhciQuirks::NO_MSI.bits()) },
 
     // JMicron
     AhciDeviceId { vendor_id: 0x197b, device_id: 0x2360, name: "JMicron JMB360 AHCI", supports_64bit: true, max_ports: 1, quirks: AhciQuirks::NO_PMP },
@@ -783,7 +783,7 @@ impl StorageDriver for AhciDriver {
         Ok(Vec::new())
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         if !self.capabilities.supports_smart {
             return Err(StorageError::NotSupported);
         }

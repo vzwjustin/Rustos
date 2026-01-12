@@ -1190,6 +1190,35 @@ impl GPUSystem {
         Ok(())
     }
 
+    /// Check if GPU acceleration is available and ready
+    pub fn is_acceleration_available(&self) -> bool {
+        self.status == GPUStatus::Ready && self.active_gpu_index.is_some()
+    }
+
+    /// Initialize GPU acceleration for framebuffer operations
+    pub fn initialize_acceleration(&mut self, _framebuffer_info: &crate::graphics::FramebufferInfo) -> Result<(), &'static str> {
+        // TODO: Implement GPU acceleration initialization
+        // This would set up DMA buffers, command queues, etc.
+        if self.status != GPUStatus::Ready {
+            return Err("GPU system not ready");
+        }
+        Ok(())
+    }
+
+    /// Clear framebuffer using GPU acceleration
+    pub fn clear_framebuffer(&self, _buffer_addr: u64, _width: usize, _height: usize, _stride: usize, _color: u32) -> Result<(), &'static str> {
+        // TODO: Implement hardware-accelerated framebuffer clear
+        // For now, return error to fall back to software implementation
+        Err("Hardware acceleration not yet implemented")
+    }
+
+    /// Fill a rectangle using GPU acceleration
+    pub fn fill_rectangle(&self, _buffer_addr: u64, _stride: usize, _x: usize, _y: usize, _width: usize, _height: usize, _color: u32) -> Result<(), &'static str> {
+        // TODO: Implement hardware-accelerated rectangle fill
+        // For now, return error to fall back to software implementation
+        Err("Hardware acceleration not yet implemented")
+    }
+
     /// Generate comprehensive GPU report
     pub fn generate_system_report(&self) -> String {
         let mut report = String::new();

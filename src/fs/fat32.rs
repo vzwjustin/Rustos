@@ -537,13 +537,13 @@ impl Fat32FileSystem {
         let components: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
         let mut current_cluster = self.root_cluster;
 
-        for component in components {
+        for component in &components {
             let entries = self.read_directory_entries(current_cluster)?;
             let mut found = false;
 
             for entry in entries {
                 if entry.name.to_lowercase() == component.to_lowercase() {
-                    if entry.file_type != FileType::Directory && component != *components.last().unwrap() {
+                    if entry.file_type != FileType::Directory && *component != *components.last().unwrap() {
                         return Err(FsError::NotADirectory);
                     }
                     current_cluster = entry.inode as u32;

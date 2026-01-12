@@ -73,6 +73,13 @@ pub struct AcpiTables {
     pub descriptors: Vec<AcpiTableDescriptor>,
 }
 
+impl AcpiTables {
+    /// Check if the ACPI tables collection is empty
+    pub fn is_empty(&self) -> bool {
+        self.rsdt_entries.is_empty() && self.xsdt_entries.is_empty() && self.descriptors.is_empty()
+    }
+}
+
 /// Metadata for a discovered ACPI system description table
 #[derive(Debug, Clone)]
 pub struct AcpiTableDescriptor {

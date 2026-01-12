@@ -411,15 +411,17 @@ impl ComprehensiveTestRunner {
             failed: 0,
             skipped: 0,
             timeouts: 0,
+            errors: 0,
             execution_time_ms,
         };
-        
+
         for stats in category_stats.values() {
             overall_stats.total_tests += stats.total_tests;
             overall_stats.passed += stats.passed;
             overall_stats.failed += stats.failed;
             overall_stats.skipped += stats.skipped;
             overall_stats.timeouts += stats.timeouts;
+            overall_stats.errors += stats.errors;
         }
         
         // Get memory usage

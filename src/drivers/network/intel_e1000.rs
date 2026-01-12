@@ -163,6 +163,7 @@ pub const INTEL_E1000_DEVICES: &[IntelE1000DeviceInfo] = &[
 
 /// E1000 register offsets
 #[repr(u32)]
+#[derive(Debug, Clone, Copy)]
 pub enum E1000Reg {
     /// Device Control
     Ctrl = 0x00000,
@@ -1025,6 +1026,13 @@ impl NetworkDriver for IntelE1000Driver {
             tx_errors: self.stats.tx_errors,
             rx_dropped: self.stats.rx_dropped,
             tx_dropped: self.stats.tx_dropped,
+            packets_sent: self.stats.tx_packets,
+            packets_received: self.stats.rx_packets,
+            bytes_sent: self.stats.tx_bytes,
+            bytes_received: self.stats.rx_bytes,
+            send_errors: self.stats.tx_errors,
+            receive_errors: self.stats.rx_errors,
+            dropped_packets: self.stats.rx_dropped + self.stats.tx_dropped,
         }
     }
 

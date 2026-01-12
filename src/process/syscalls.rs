@@ -185,6 +185,7 @@ pub struct OpenFlags {
     pub create: bool,
     pub truncate: bool,
     pub append: bool,
+    pub exclusive: bool,
 }
 
 impl From<u64> for OpenFlags {
@@ -195,6 +196,7 @@ impl From<u64> for OpenFlags {
             create: (flags & 0x04) != 0,
             truncate: (flags & 0x08) != 0,
             append: (flags & 0x10) != 0,
+            exclusive: (flags & 0x20) != 0,
         }
     }
 }
@@ -408,6 +410,7 @@ impl SyscallDispatcher {
             create: false,
             append: false,
             truncate: false,
+            exclusive: false,
         }) {
             Ok(fd) => fd,
             Err(_) => return SyscallResult::Error(SyscallError::FileNotFound),
@@ -472,7 +475,7 @@ impl SyscallDispatcher {
         };
 
         // Step 5: Update process control block with loaded binary information
-        let process = match process_manager.get_process(current_pid) {
+        let mut process = match process_manager.get_process(current_pid) {
             Some(p) => p,
             None => return SyscallResult::Error(SyscallError::ProcessNotFound),
         };
@@ -535,7 +538,7 @@ impl SyscallDispatcher {
         };
 
         // Find child processes
-        let children: Vec<Pid> = process_manager.processes.lock()
+        let children: Vec<Pid> = process_manager.processes.read()
             .iter()
             .filter_map(|(pid, pcb)| {
                 if pcb.parent_pid == Some(current_pid) {
@@ -560,7 +563,7 @@ impl SyscallDispatcher {
                 if matches!(child.state, ProcessState::Terminated) {
                     // Reap the child process
                     let exit_code = child.exit_code.unwrap_or(0);
-                    process_manager.processes.lock().remove(&child_pid);
+                    process_manager.processes.write().remove(&child_pid);
                     return SyscallResult::Success(((child_pid as u64) << 32) | (exit_code as u64));
                 }
             }
@@ -704,7 +707,7 @@ impl SyscallDispatcher {
         let count = args.get(2).copied().unwrap_or(0) as usize;
 
         // Get process and file descriptor
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Handle standard input
             if fd == 0 {
                 // Read from console
@@ -749,7 +752,7 @@ impl SyscallDispatcher {
         let count = args.get(2).copied().unwrap_or(0) as usize;
 
         // Get process
-        if let Some(process) = process_manager.get_process(current_pid) {
+        if let Some(mut process) = process_manager.get_process(current_pid) {
             // Handle standard output/error
             if fd == 1 || fd == 2 {
                 // Copy from user buffer
@@ -1146,7 +1149,7 @@ impl SyscallDispatcher {
             }
         } else if signal == 2 { // SIGINT
             // Interrupt signal (Ctrl+C)
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 if let Some(&handler) = target.signal_handlers.get(&2) {
                     target.pending_signals.push(signal);
                     if matches!(target.state, ProcessState::Sleeping) {
@@ -1177,7 +1180,7 @@ impl SyscallDispatcher {
             }
         } else {
             // For other signals, just queue them if handler exists
-            if let Some(target) = process_manager.get_process(target_pid) {
+            if let Some(mut target) = process_manager.get_process(target_pid) {
                 if target.signal_handlers.contains_key(&signal) {
                     target.pending_signals.push(signal);
                     SyscallResult::Success(0)

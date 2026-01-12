@@ -930,11 +930,12 @@ fn enable_hardware_acceleration(info: &FramebufferInfo) -> Result<(), &'static s
     if info.gpu_accelerated {
         // Initialize 2D acceleration engine
         initialize_2d_engine()?;
-        
+
         // Initialize 3D acceleration if available
-        if let Some(gpu_manager) = crate::gpu::get_gpu_manager() {
-            gpu_manager.initialize_acceleration(info)?;
-        }
+        // TODO: Implement mutable GPU manager access
+        // if let Some(gpu_manager) = crate::gpu::get_gpu_manager() {
+        //     gpu_manager.initialize_acceleration(info)?;
+        // }
     }
     
     Ok(())
@@ -1427,7 +1428,7 @@ mod gpu_interface {
                 // Set up color buffer
                 core::ptr::write_volatile(cb_base.add(0x0), buffer as u32); // CB_COLOR0_BASE
                 core::ptr::write_volatile(cb_base.add(0x1), (stride / 4) as u32); // CB_COLOR0_PITCH
-                core::ptr::write_volatile(cb_base.add(0x2), ((height - 1) << 16) | (width - 1)); // CB_COLOR0_SLICE
+                core::ptr::write_volatile(cb_base.add(0x2), (((height - 1) << 16) | (width - 1)) as u32); // CB_COLOR0_SLICE
                 
                 // Set clear color
                 core::ptr::write_volatile(cb_base.add(0x10), color); // CB_COLOR0_CLEAR_WORD0
@@ -1537,7 +1538,7 @@ mod gpu_interface {
     // Hardware detection functions
     fn detect_gpu_hardware() -> Option<(GPUVendor, u16, u64)> {
         // Scan PCI bus for GPU devices
-        for bus in 0..256 {
+        for bus in 0..=255 {
             for device in 0..32 {
                 for function in 0..8 {
                     if let Some((vendor_id, device_id, reg_base)) = read_pci_device(bus, device, function) {

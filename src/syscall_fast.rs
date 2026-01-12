@@ -138,9 +138,11 @@ unsafe fn write_msr(msr: u32, value: u64) {
 /// - R9: arg6
 ///
 /// We must preserve RCX and R11 to return with SYSRET.
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn syscall_entry() {
-    asm!(
+    use core::arch::naked_asm;
+
+    naked_asm!(
         // Save user space registers
         // We're now on the kernel stack (from TSS RSP0)
 
@@ -193,8 +195,7 @@ pub unsafe extern "C" fn syscall_entry() {
         // - Set CPL to 3
         "sysretq",
 
-        syscall_handler = sym syscall_handler_wrapper,
-        options(noreturn)
+        syscall_handler = sym syscall_handler_wrapper
     );
 }
 

@@ -146,6 +146,7 @@ pub enum NvmeOpcode {
 
 /// NVMe I/O command opcodes
 #[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 pub enum NvmeIoOpcode {
     /// Flush
     Flush = 0x00,
@@ -533,7 +534,9 @@ impl NvmeDriver {
         self.write_reg(NvmeReg::Cc, cc as u64);
 
         // Set up admin queues (simplified - would need real DMA memory)
-        self.write_reg(NvmeReg::Aqa, (((self.max_queue_entries - 1) << 16) | (self.max_queue_entries - 1)) as u64);
+        let acq_size = (self.max_queue_entries - 1) as u32;
+        let asq_size = (self.max_queue_entries - 1) as u32;
+        self.write_reg(NvmeReg::Aqa, ((acq_size << 16) | asq_size) as u64);
 
         // Enable controller
         cc |= NvmeCc::EN.bits();
@@ -882,7 +885,7 @@ impl StorageDriver for NvmeDriver {
         Err(StorageError::NotSupported)
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         if !self.capabilities.supports_smart {
             return Err(StorageError::NotSupported);
         }

@@ -101,6 +101,8 @@ impl IoScheduler {
         *next_id += 1;
         drop(next_id);
 
+        let request_id = request.request_id; // Save before moving
+
         let mut queue = self.request_queue.lock();
         queue.push_back(request);
         drop(queue);
@@ -108,7 +110,7 @@ impl IoScheduler {
         let mut total = self.total_requests.lock();
         *total += 1;
 
-        request.request_id
+        request_id
     }
 
     /// Process pending I/O requests

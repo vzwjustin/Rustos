@@ -643,7 +643,7 @@ impl StorageDriver for UsbMassStorageDriver {
         Ok(Vec::new())
     }
 
-    fn get_smart_data(&self) -> Result<Vec<u8>, StorageError> {
+    fn get_smart_data(&mut self) -> Result<Vec<u8>, StorageError> {
         // USB Mass Storage typically doesn't support SMART directly
         Err(StorageError::NotSupported)
     }

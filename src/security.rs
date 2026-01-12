@@ -2243,8 +2243,8 @@ pub fn derive_key(password: &[u8], salt: &[u8], iterations: u32, key_length: usi
 fn pbkdf2_sha256(password: &[u8], salt: &[u8], iterations: u32, output: &mut [u8]) {
     let hlen = 32; // SHA-256 output length
     let dklen = output.len();
-    
-    if dklen > (2u64.pow(32) - 1) * hlen as u64 {
+
+    if dklen > ((2u64.pow(32) - 1) * hlen as u64) as usize {
         panic!("Derived key too long");
     }
     

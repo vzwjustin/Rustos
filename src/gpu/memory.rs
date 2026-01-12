@@ -1007,7 +1007,7 @@ impl GPUMemoryManager {
         // Unmap virtual pages
         for i in 0..pages_needed {
             let page_addr = virt_addr + (i * 4096) as u64;
-            if let Err(_) = crate::memory::unmap_page(x86_64::VirtAddr::new(page_addr)) {
+            if let Err(_) = crate::memory::unmap_page(page_addr as usize) {
                 crate::serial_println!("Warning: Failed to unmap GPU page at {:x}", page_addr);
             }
         }

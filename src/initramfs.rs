@@ -187,12 +187,12 @@ pub fn start_init() -> Result<(), InitramfsError> {
 
     // 2. Read the entire /init binary into memory
     let mut binary_data = Vec::new();
-    let file_size = init_inode.metadata()
+    let file_size = init_inode.stat()
         .map_err(|_| InitramfsError::VfsError)?
         .size;
 
-    binary_data.resize(file_size, 0);
-    init_inode.read(0, &mut binary_data)
+    binary_data.resize(file_size as usize, 0);
+    init_inode.read_at(0, &mut binary_data)
         .map_err(|_| InitramfsError::VfsError)?;
 
     // 3. Load and validate the ELF binary

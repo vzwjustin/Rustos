@@ -377,7 +377,7 @@ impl HealthMonitor {
     pub fn get_system_diagnostics(&self) -> SystemDiagnostics {
         let metrics = self.get_health_metrics();
         let components = self.get_component_health();
-        let error_history = if let Ok(manager) = ERROR_MANAGER.try_lock() {
+        let error_history = if let Some(manager) = ERROR_MANAGER.try_lock() {
             manager.get_error_history().len()
         } else {
             0

@@ -325,6 +325,16 @@ impl CpuScheduler {
         self.ready_queues.iter().map(|q| q.len()).sum()
     }
 
+    /// Get the total number of processes (ready + current)
+    pub fn process_count(&self) -> usize {
+        let ready_count = self.ready_process_count();
+        if self.current_process.is_some() {
+            ready_count + 1
+        } else {
+            ready_count
+        }
+    }
+
     /// Update CPU utilization
     pub fn update_utilization(&mut self, active_time: u64, total_time: u64) {
         if total_time > 0 {
@@ -998,7 +1008,7 @@ pub fn schedule() -> Option<Pid> {
     // For simplicity, we assume each process has a main thread with TID = PID
     if let Some(pid) = next_pid {
         let thread_manager = crate::process::thread::get_thread_manager();
-        thread_manager.set_current_thread(pid as u64);
+        thread_manager.set_current_thread(pid);
     }
     
     next_pid
@@ -1026,7 +1036,7 @@ fn get_system_time() -> u64 {
 }
 
 /// Context switch between processes (real assembly implementation)
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn context_switch(old_state: *mut CpuState, new_state: *const CpuState) {
     use core::arch::naked_asm;
     
@@ -1207,7 +1217,7 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
     let process_priority = GLOBAL_SCHEDULER.with_process(pid, |process| process.priority);
     if let Some(priority) = process_priority {
         for (cpu_id, cpu_scheduler_mutex) in GLOBAL_SCHEDULER.cpu_schedulers.iter().enumerate() {
-            if let Ok(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+            if let Some(mut cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
                 if cpu_scheduler.ready_queues[priority as usize].iter().position(|&p| p == pid).is_some() {
                     cpu_scheduler.ready_queues[priority as usize].retain(|&p| p != pid);
                     break;
@@ -1216,7 +1226,7 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
         }
 
         // Add to target CPU's ready queue
-        if let Ok(mut target_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[target_cpu as usize].try_lock() {
+        if let Some(mut target_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[target_cpu as usize].try_lock() {
             target_scheduler.enqueue_process(pid, priority);
         }
     }
@@ -1227,9 +1237,9 @@ pub fn migrate_process_to_cpu(pid: Pid, target_cpu: CpuId) -> Result<(), &'stati
 /// Get current CPU load information
 pub fn get_cpu_loads() -> Vec<(CpuId, usize, u8)> {
     let mut loads = Vec::new();
-    
+
     for (cpu_id, cpu_scheduler_mutex) in GLOBAL_SCHEDULER.cpu_schedulers.iter().enumerate() {
-        if let Ok(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
+        if let Some(cpu_scheduler) = cpu_scheduler_mutex.try_lock() {
             loads.push((
                 cpu_id as CpuId,
                 cpu_scheduler.ready_process_count(),
@@ -1251,7 +1261,7 @@ pub fn set_load_balancing(enabled: bool) {
 pub fn yield_cpu() {
     // Trigger a reschedule by setting time slice to 0
     let cpu_id = get_current_cpu_id();
-    if let Ok(mut cpu_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[cpu_id as usize].try_lock() {
+    if let Some(mut cpu_scheduler) = GLOBAL_SCHEDULER.cpu_schedulers[cpu_id as usize].try_lock() {
         cpu_scheduler.time_slice_remaining = 0;
     }
 }

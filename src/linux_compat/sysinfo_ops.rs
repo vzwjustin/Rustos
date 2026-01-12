@@ -365,7 +365,7 @@ pub fn reboot(magic: i32, magic2: i32, cmd: u32, arg: *mut u8) -> LinuxResult<i3
     inc_ops();
 
     // Magic numbers for reboot
-    const LINUX_REBOOT_MAGIC1: i32 = 0xfee1dead;
+    const LINUX_REBOOT_MAGIC1: i32 = 0xfee1deadu32 as i32;
     const LINUX_REBOOT_MAGIC2: i32 = 672274793;
 
     if magic != LINUX_REBOOT_MAGIC1 {

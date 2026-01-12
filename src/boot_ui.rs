@@ -755,8 +755,15 @@ pub fn memory_init_progress(
     // Initialize heap
     update_substage(3, "Setting up kernel heap...");
     if result.allocator_ready {
-        report_success("Kernel heap initialized (100 MB reserved)");
-        result.heap_ready = true;
+        match crate::memory_basic::init_heap(&crate::ALLOCATOR) {
+            Ok(_) => {
+                report_success("Kernel heap initialized (100 MB reserved)");
+                result.heap_ready = true;
+            }
+            Err(e) => {
+                report_error("Heap init", e);
+            }
+        }
     }
 
     // Test allocation
@@ -1322,7 +1329,7 @@ fn set_color(foreground: Color, background: Color) {
 
 /// Print text centered on screen
 fn print_centered(text: &str) {
-    let width = 80;
+    let width: usize = 80;
     let padding = (width.saturating_sub(text.len())) / 2;
     for _ in 0..padding {
         print!(" ");

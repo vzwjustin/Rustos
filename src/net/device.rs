@@ -219,12 +219,21 @@ impl NetworkDevice for LoopbackDevice {
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_mtu: 65535,
+            min_mtu: 68,
             hw_checksum: true, // Loopback doesn't need real checksums
+            supports_checksum_offload: true,
             scatter_gather: true,
             tso: true,
+            supports_tso: true,
+            supports_lro: true,
             rss: false,
             vlan: false,
+            supports_vlan: false,
             jumbo_frames: true,
+            supports_jumbo_frames: true,
+            multicast_filter: false,
+            max_tx_queues: 1,
+            max_rx_queues: 1,
         }
     }
 
@@ -380,12 +389,21 @@ impl NetworkDevice for VirtualEthernetDevice {
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_mtu: 65535,
+            min_mtu: 68,
             hw_checksum: false,
+            supports_checksum_offload: false,
             scatter_gather: true,
             tso: false,
+            supports_tso: false,
+            supports_lro: false,
             rss: false,
             vlan: true,
+            supports_vlan: true,
             jumbo_frames: true,
+            supports_jumbo_frames: true,
+            multicast_filter: false,
+            max_tx_queues: 1,
+            max_rx_queues: 1,
         }
     }
 

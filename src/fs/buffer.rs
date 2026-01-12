@@ -363,7 +363,7 @@ impl BufferCache {
             stats.dirty_buffers = stats.dirty_buffers.saturating_sub(1);
         }
 
-        result
+        result.map(|_| ())
     }
 
     /// Read-ahead operation

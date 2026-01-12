@@ -175,14 +175,14 @@ impl MouseState {
         // Decode movement - handle sign extension
         let x_movement = if (byte0 & PACKET0_X_SIGN) != 0 {
             // Negative value - sign extend
-            (byte1 as i16) | 0xFF00
+            (byte1 as i16) | (-256i16)
         } else {
             byte1 as i16
         };
 
         let y_movement = if (byte0 & PACKET0_Y_SIGN) != 0 {
             // Negative value - sign extend
-            (byte2 as i16) | 0xFF00
+            (byte2 as i16) | (-256i16)
         } else {
             byte2 as i16
         };
@@ -213,7 +213,7 @@ impl MouseState {
             // Lower 4 bits are scroll wheel (sign extended)
             let z = byte3 & 0x0F;
             if z >= 8 {
-                (z as i8) | 0xF0
+                (z as i8) | (-16i8)
             } else {
                 z as i8
             }

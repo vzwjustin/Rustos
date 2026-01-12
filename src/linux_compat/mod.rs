@@ -115,19 +115,21 @@ pub enum LinuxError {
     ENOTEMPTY = 39,
     /// Too many symbolic links encountered
     ELOOP = 40,
-    /// Operation would block
-    EWOULDBLOCK = 11, // Same as EAGAIN
     /// No message of desired type
     ENOMSG = 42,
     /// Identifier removed
     EIDRM = 43,
-    /// Not supported
-    ENOTSUP = 95,
-    /// Operation not supported on transport endpoint
-    EOPNOTSUPP = 95,
     /// No data available
     ENODATA = 61,
+    /// Not supported
+    ENOTSUP = 95,
 }
+
+// Linux compatibility aliases - these errno values are intentionally the same
+/// Operation would block (alias for EAGAIN)
+pub const EWOULDBLOCK: LinuxError = LinuxError::EAGAIN;
+/// Operation not supported on transport endpoint (alias for ENOTSUP)
+pub const EOPNOTSUPP: LinuxError = LinuxError::ENOTSUP;
 
 impl LinuxError {
     /// Convert to errno value

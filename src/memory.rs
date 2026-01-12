@@ -2831,10 +2831,10 @@ pub fn check_memory_access(addr: usize, size: usize, write: bool, privilege_leve
         for offset in (0..size).step_by(4096) {
             let check_addr = addr + offset;
             let virt_addr = VirtAddr::new(check_addr as u64);
-            let page = Page::containing_address(virt_addr);
+            let page: Page<Size4KiB> = Page::containing_address(virt_addr);
 
             // Check if page is mapped
-            if page_table_manager.translate_page(page).is_none() {
+            if page_table_manager.mapper.translate_page(page).is_err() {
                 return Ok(false);
             }
 

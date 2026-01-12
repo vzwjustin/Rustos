@@ -7,6 +7,11 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use bootloader::{BootInfo, entry_point};
 use alloc::string::ToString;
+use linked_list_allocator::LockedHeap;
+
+// Global allocator for heap memory
+#[global_allocator]
+pub static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 // Include compiler intrinsics for missing symbols
 mod intrinsics;

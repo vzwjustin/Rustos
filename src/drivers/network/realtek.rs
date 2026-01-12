@@ -497,6 +497,14 @@ impl NetworkDriver for RealtekDriver {
 
     fn get_stats(&self) -> NetworkStats {
         NetworkStats {
+            rx_packets: self.stats.rx_packets,
+            tx_packets: self.stats.tx_packets,
+            rx_bytes: self.stats.rx_bytes,
+            tx_bytes: self.stats.tx_bytes,
+            rx_errors: self.stats.rx_errors,
+            tx_errors: self.stats.tx_errors,
+            rx_dropped: self.stats.rx_dropped,
+            tx_dropped: self.stats.tx_dropped,
             packets_sent: self.stats.tx_packets,
             packets_received: self.stats.rx_packets,
             bytes_sent: self.stats.tx_bytes,
