@@ -13,8 +13,129 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use crate::network::drivers::{NetworkDriver, DeviceType, DeviceState, DeviceCapabilities, DriverManager};
-use crate::network::{NetworkError, MacAddress};
+use alloc::format;
+use crate::net::{NetworkError, MacAddress};
+
+// Re-export types from net::device for compatibility
+pub use crate::net::device::{DeviceType, DeviceCapabilities, NetworkDevice as NetworkDeviceTrait};
+
+/// Device state enumeration for network drivers
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceState {
+    /// Device is not initialized
+    Uninitialized,
+    /// Device is initializing
+    Initializing,
+    /// Device is ready but stopped
+    Stopped,
+    /// Device is running
+    Running,
+    /// Device is in error state
+    Error,
+    /// Device is suspended
+    Suspended,
+}
+
+/// Network driver trait for hardware-specific drivers
+pub trait NetworkDriver: Send + Sync {
+    /// Get driver name
+    fn name(&self) -> &str;
+
+    /// Initialize the driver
+    fn init(&mut self) -> Result<(), NetworkError>;
+
+    /// Start the driver (enable packet transmission/reception)
+    fn start(&mut self) -> Result<(), NetworkError>;
+
+    /// Stop the driver
+    fn stop(&mut self) -> Result<(), NetworkError>;
+
+    /// Send a packet
+    fn send(&mut self, data: &[u8]) -> Result<(), NetworkError>;
+
+    /// Receive a packet (returns None if no packet available)
+    fn receive(&mut self) -> Result<Option<Vec<u8>>, NetworkError>;
+
+    /// Get MAC address
+    fn mac_address(&self) -> MacAddress;
+
+    /// Get current device state
+    fn state(&self) -> DeviceState;
+
+    /// Get link status (true = up, false = down)
+    fn link_up(&self) -> bool;
+
+    /// Get link speed in Mbps
+    fn link_speed(&self) -> u32;
+}
+
+/// Dummy Ethernet driver for testing
+pub struct DummyEthernetDriver {
+    name: String,
+    mac: MacAddress,
+    state: DeviceState,
+}
+
+impl DummyEthernetDriver {
+    pub fn new(name: String, mac: MacAddress) -> Self {
+        Self {
+            name,
+            mac,
+            state: DeviceState::Uninitialized,
+        }
+    }
+}
+
+impl NetworkDriver for DummyEthernetDriver {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn init(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Stopped;
+        Ok(())
+    }
+
+    fn start(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Running;
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<(), NetworkError> {
+        self.state = DeviceState::Stopped;
+        Ok(())
+    }
+
+    fn send(&mut self, _data: &[u8]) -> Result<(), NetworkError> {
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::NotConnected);
+        }
+        Ok(())
+    }
+
+    fn receive(&mut self) -> Result<Option<Vec<u8>>, NetworkError> {
+        if self.state != DeviceState::Running {
+            return Err(NetworkError::NotConnected);
+        }
+        Ok(None)
+    }
+
+    fn mac_address(&self) -> MacAddress {
+        self.mac
+    }
+
+    fn state(&self) -> DeviceState {
+        self.state
+    }
+
+    fn link_up(&self) -> bool {
+        self.state == DeviceState::Running
+    }
+
+    fn link_speed(&self) -> u32 {
+        1000
+    }
+}
 
 /// Network driver types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,7 +425,7 @@ pub fn init_network_drivers() -> Result<NetworkDriverManager, NetworkError> {
     // 4. Configure hardware
 
     // For now, create a dummy driver for testing
-    let dummy_driver = crate::network::drivers::DummyEthernetDriver::new(
+    let dummy_driver = DummyEthernetDriver::new(
         "Generic Ethernet".to_string(),
         MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]),
     );
@@ -482,7 +603,7 @@ mod tests {
     fn test_network_driver_manager() {
         let mut manager = NetworkDriverManager::new();
 
-        let dummy_driver = crate::network::drivers::DummyEthernetDriver::new(
+        let dummy_driver = DummyEthernetDriver::new(
             "Test Driver".to_string(),
             MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
         );

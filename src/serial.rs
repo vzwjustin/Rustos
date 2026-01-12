@@ -56,22 +56,23 @@ pub fn handle_port2_interrupt() {
     }
 }
 
-/// Write a string to serial port 1
-pub fn _print_serial(s: &str) {
+/// Write formatted arguments to serial port 1
+pub fn _print_serial(args: core::fmt::Arguments) {
     use core::fmt::Write;
     let mut serial = SERIAL1.lock();
-    let _ = serial.write_str(s);
+    let _ = serial.write_fmt(args);
 }
 
 /// Serial print macro
 #[macro_export]
 macro_rules! serial_print {
-    ($($arg:tt)*) => ($crate::serial::_print_serial(&format!($($arg)*)));
+    ($($arg:tt)*) => ($crate::serial::_print_serial(format_args!($($arg)*)));
 }
 
 /// Serial println macro
 #[macro_export]
 macro_rules! serial_println {
     () => ($crate::serial_print!("\n"));
-    ($($arg:tt)*) => ($crate::serial_print!("{}\n", format_args!($($arg)*)));
+    ($fmt:expr) => ($crate::serial_print!(concat!($fmt, "\n")));
+    ($fmt:expr, $($arg:tt)*) => ($crate::serial_print!(concat!($fmt, "\n"), $($arg)*));
 }

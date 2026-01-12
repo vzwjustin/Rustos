@@ -8,7 +8,7 @@ use super::ahci::{AhciDriver, AHCI_DEVICE_IDS};
 use super::nvme::NvmeDriver;
 use super::ide::{IdeDriver, create_ide_drivers};
 use super::pci_scan::{PciDevice, scan_pci_devices};
-use alloc::{vec::Vec, string::{String, ToString}, boxed::Box};
+use alloc::{vec::Vec, string::{String, ToString}, boxed::Box, format};
 
 /// PCI class codes for storage controllers
 const PCI_CLASS_STORAGE: u8 = 0x01;

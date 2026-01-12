@@ -1287,8 +1287,6 @@ impl PageTableManager {
 
     /// Get current page flags by reading page table entry directly
     pub fn get_flags(&self, page: Page) -> Option<PageTableFlags> {
-        use x86_64::structures::paging::{PageTableIndex, PageTableEntry};
-        
         // Get the current page table
         let (level_4_table_frame, _) = Cr3::read();
         let level_4_table_ptr = (self.physical_memory_offset + level_4_table_frame.start_address().as_u64()).as_mut_ptr();

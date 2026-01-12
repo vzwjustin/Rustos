@@ -9,6 +9,7 @@
 //! - Advanced rendering pipeline management
 
 use alloc::vec::Vec;
+use alloc::vec;
 use alloc::string::{String, ToString};
 use alloc::collections::BTreeMap;
 use alloc::format;

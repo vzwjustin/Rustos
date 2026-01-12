@@ -3,9 +3,9 @@
 //! Driver for Broadcom NetXtreme BCM5700/5701/5702/5703/5704/5705/5714/5715/5717/5718/5719/5720
 //! and other Broadcom Gigabit Ethernet controllers.
 
-use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats};
-use crate::network::drivers::{NetworkDriver, DeviceType, DeviceState, DeviceCapabilities};
-use crate::network::{NetworkError, NetworkStats, MacAddress};
+use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, NetworkDriver, DeviceState, DeviceCapabilities};
+use crate::net::{NetworkError, MacAddress};
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 

@@ -6,8 +6,11 @@
 pub mod vbe;
 pub mod pci;
 pub mod hotplug;
+pub mod storage;
+pub mod network;
 
 // Removed unused imports
+use alloc::format;
 use alloc::string::String;
 use core::fmt;
 
@@ -28,6 +31,26 @@ pub use hotplug::{
     init as init_hotplug, hotplug_manager, add_device as add_hotplug_device,
     remove_device as remove_hotplug_device, process_events as process_hotplug_events,
     get_hotplug_stats, HotplugDevice, HotplugEvent, DeviceState,
+};
+
+// Re-export storage functionality
+pub use storage::{
+    // Core types
+    StorageError, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageStats,
+    StorageDriver, StorageDevice, StorageDeviceInfo, StorageDriverManager, StorageManagerStats,
+    // Device-specific read/write with device_id
+    read_storage_sectors, write_storage_sectors,
+    // Unified interface (uses default device)
+    read_sectors, write_sectors, flush_storage,
+    set_default_device, get_default_device,
+    // Block device abstraction
+    BlockDevice, list_block_devices, get_device_by_type,
+    // Partition support
+    PartitionInfo, PartitionType, read_mbr_partitions, is_gpt_device,
+    // Subsystem control
+    StorageSubsystemStatus, get_subsystem_status, get_storage_device_list,
+    init_storage_manager, with_storage_manager, init_storage_subsystem,
+    reset_device, standby_device, wake_device, get_device_smart_data,
 };
 
 /// Driver types supported by RustOS

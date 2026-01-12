@@ -5,6 +5,7 @@
 //! and ensures backward compatibility and proper error handling.
 
 use alloc::{vec::Vec, vec, string::{String, ToString}, collections::BTreeMap};
+use crate::println;
 use crate::testing_framework::{TestResult, TestStats};
 use crate::testing::{
     comprehensive_test_runner::{ComprehensiveTestConfig, ComprehensiveTestRunner},
@@ -823,16 +824,13 @@ impl ProductionValidationRunner {
         
         // Get real network utilization from network stack if available
         let network_utilization_percent = {
-            use crate::net::get_network_stack;
-            if let Some(net_stack) = get_network_stack() {
-                let stats = net_stack.lock().get_statistics();
-                // Calculate utilization based on packet rate
-                // Assume 1000 packets/sec = 100% utilization
-                let packet_rate = stats.packets_sent + stats.packets_received;
-                (packet_rate as f32 / 1000.0 * 100.0).min(100.0)
-            } else {
-                0.0 // No network stack available
-            }
+            use crate::net::network_stack;
+            let net_stack = network_stack();
+            let stats = net_stack.get_stats();
+            // Calculate utilization based on packet rate
+            // Assume 1000 packets/sec = 100% utilization
+            let packet_rate = stats.packets_received + stats.packets_sent;
+            (packet_rate as f32 / 1000.0 * 100.0).min(100.0)
         };
         
         ResourceUtilizationReport {

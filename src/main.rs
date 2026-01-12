@@ -21,6 +21,8 @@ mod memory;
 mod fs;
 // Include visual boot display
 mod boot_display;
+// Include enhanced boot UI with progress indicators
+mod boot_ui;
 // Include keyboard input handler
 mod keyboard;
 // Include desktop environment
@@ -54,7 +56,9 @@ mod pci;
 // Include drivers
 mod drivers;
 // Include network stack
-mod net;
+pub mod net;
+// Re-export network module with alternative name for compatibility
+pub use net as network;
 // Include security
 mod security;
 // Include IPC
@@ -75,6 +79,8 @@ mod health;
 mod logging;
 // Include comprehensive testing framework
 mod testing;
+// Include testing framework core (used by testing module)
+mod testing_framework;
 // Include performance monitoring
 mod performance;
 mod performance_monitor;
@@ -177,306 +183,223 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         early_serial_write_str("RustOS: VGA buffer initialized\r\n");
     }
 
-    // Initialize VGA buffer
+    // Initialize VGA buffer for text mode display
     vga_buffer::init();
     unsafe {
         early_serial_write_str("RustOS: VGA buffer system initialized\r\n");
     }
 
-    // Add immediate test output
-    println!("RustOS Kernel Loading...");
-    println!("Entry point reached successfully!");
-    unsafe {
-        early_serial_write_str("RustOS: Boot sequence starting\r\n");
-    }
+    // Record boot start time (after basic init)
+    let boot_start_time = 0u64; // Will use time::uptime_ms() after time init
 
-    // Show brief boot sequence
-    boot_display::show_boot_logo();
-    boot_display::boot_delay();
+    // ========================================================================
+    // PHASE 1: Boot Splash and Early Initialization
+    // ========================================================================
+    boot_ui::show_boot_splash();
+    boot_ui::boot_delay_medium();
 
-    // Quick initialization sequence
-    boot_display::show_boot_progress(1, 4, "Initializing Hardware");
-    boot_display::boot_delay();
+    // ========================================================================
+    // PHASE 2: Hardware Detection
+    // ========================================================================
+    let hardware_result = boot_ui::hardware_detection_progress();
 
-    // Initialize basic memory management
-    let physical_memory_offset = x86_64::VirtAddr::new(0);
-    unsafe {
-        early_serial_write_str("RustOS: Initializing memory management\r\n");
-    }
-    let _memory_stats = match memory_basic::init_memory(
-        &boot_info.memory_map,
-        physical_memory_offset,
-    ) {
-        Ok(stats) => {
-            boot_display::show_boot_progress(2, 4, "Memory Management Ready");
-            unsafe {
-                early_serial_write_str("RustOS: Memory management initialized successfully\r\n");
-            }
-            stats
-        }
-        Err(_) => {
-            boot_display::show_boot_progress(2, 4, "Memory Management Basic");
-            unsafe {
-                early_serial_write_str("RustOS: Memory management using basic fallback\r\n");
-            }
-            memory_basic::MemoryStats {
-                total_memory: 512 * 1024 * 1024,
-                usable_memory: 256 * 1024 * 1024,
-                memory_regions: 5,
-            }
-        }
+    // ========================================================================
+    // PHASE 3: ACPI Initialization
+    // ========================================================================
+    let acpi_result = if let Some(rsdp_addr) = boot_info.rsdp_addr {
+        boot_ui::acpi_init_progress(Some(rsdp_addr.into()), boot_info.physical_memory_offset.into())
+    } else {
+        boot_ui::begin_stage(boot_ui::BootStage::AcpiInit, 1);
+        boot_ui::report_warning("ACPI", "No RSDP address from bootloader");
+        boot_ui::complete_stage(boot_ui::BootStage::AcpiInit);
+        boot_ui::AcpiInitResult::new()
     };
 
-    boot_display::show_boot_progress(3, 4, "Initializing Time Management");
-    
-    // Initialize ACPI first (needed for timer detection)
-    if let Some(rsdp_addr) = boot_info.rsdp_addr {
-        let physical_offset = boot_info.physical_memory_offset;
-        match acpi::init(rsdp_addr.into(), Some(physical_offset.into())) {
-            Ok(()) => {
-                unsafe {
-                    early_serial_write_str("RustOS: ACPI initialized successfully\r\n");
-                }
-                
-                // Try to parse ACPI tables for timer detection
-                if let Ok(_) = acpi::enumerate_tables() {
-                    println!("✅ ACPI tables enumerated successfully");
-                    
-                    // Try to parse MADT for APIC timer
-                    if let Ok(_) = acpi::parse_madt() {
-                        println!("✅ MADT parsed - APIC timer available");
-                    }
-                    
-                    // Try to parse HPET
-                    if let Ok(_) = acpi::parse_hpet() {
-                        println!("✅ HPET parsed - High precision timer available");
-                    }
-                } else {
-                    println!("⚠️  ACPI table enumeration failed");
-                }
-            }
-            Err(e) => {
-                unsafe {
-                    early_serial_write_str("RustOS: ACPI initialization failed, using fallback\r\n");
-                }
-                println!("ACPI init failed: {}", e);
-            }
-        }
-    } else {
-        println!("⚠️  No RSDP address provided by bootloader");
-    }
-    
+    // ========================================================================
+    // PHASE 4: PCI Bus Enumeration
+    // ========================================================================
+    let pci_result = boot_ui::pci_enum_progress();
+
+    // ========================================================================
+    // PHASE 5: Memory Management Initialization
+    // ========================================================================
+    let physical_memory_offset = x86_64::VirtAddr::new(0);
+    let memory_result = boot_ui::memory_init_progress(&boot_info.memory_map, physical_memory_offset);
+
+    // ========================================================================
+    // PHASE 6: Interrupt and System Setup
+    // ========================================================================
+    boot_ui::begin_stage(boot_ui::BootStage::InterruptInit, 5);
+
     // Initialize error handling system early
+    boot_ui::update_substage(1, "Initializing error handling...");
     error::init_error_handling();
-    unsafe {
-        early_serial_write_str("RustOS: Error handling system initialized\r\n");
-    }
-    println!("✅ Error handling and recovery system initialized");
-    
+    boot_ui::report_success("Error handling system initialized");
+
     // Initialize health monitoring system
+    boot_ui::update_substage(2, "Starting health monitoring...");
     health::init_health_monitoring();
-    unsafe {
-        early_serial_write_str("RustOS: Health monitoring system initialized\r\n");
-    }
-    println!("✅ System health monitoring initialized");
-    
+    boot_ui::report_success("System health monitoring active");
+
     // Initialize comprehensive logging and debugging
+    boot_ui::update_substage(3, "Setting up logging subsystem...");
     logging::init_logging_and_debugging();
-    unsafe {
-        early_serial_write_str("RustOS: Logging and debugging system initialized\r\n");
-    }
-    println!("✅ Comprehensive logging and debugging initialized");
-    
-    // Initialize GDT and interrupts (required for timer interrupts)
+    boot_ui::report_success("Logging and debugging ready");
+
+    // Initialize GDT and interrupts
+    boot_ui::update_substage(4, "Configuring GDT and IDT...");
     gdt::init();
     interrupts::init();
+    boot_ui::report_success("GDT and interrupts configured");
 
-    // Initialize fast syscall support (SYSCALL/SYSRET)
+    // Initialize fast syscall support
+    boot_ui::update_substage(5, "Setting up syscall interface...");
     if syscall_fast::is_supported() {
         syscall_fast::init();
-        serial_println!("[OK] Fast syscall (SYSCALL/SYSRET) support enabled");
+        boot_ui::report_success("Fast syscall (SYSCALL/SYSRET) enabled");
     } else {
-        serial_println!("[INFO] Fast syscall not supported, using INT 0x80 only");
+        boot_ui::report_warning("Syscall", "Using INT 0x80 fallback");
     }
 
-    // Initialize time management system
-    match time::init() {
+    boot_ui::complete_stage(boot_ui::BootStage::InterruptInit);
+    boot_ui::boot_delay_short();
+
+    // ========================================================================
+    // PHASE 7: Driver Loading
+    // ========================================================================
+    let driver_result = boot_ui::driver_loading_progress();
+
+    // Initialize time management system (part of driver loading)
+    let time_initialized = match time::init() {
         Ok(()) => {
-            unsafe {
-                early_serial_write_str("RustOS: Time management system initialized\r\n");
-            }
-            println!("✅ Time system initialized with hardware timers");
-            
-            // Show timer system status
             let stats = time::get_timer_stats();
-            println!("   Active Timer: {:?}", stats.active_timer);
-            if stats.tsc_frequency > 0 {
-                println!("   TSC Frequency: {:.2} GHz", stats.tsc_frequency as f64 / 1_000_000_000.0);
-            } else {
-                println!("   TSC Frequency: Not calibrated");
-            }
-            println!("   System Initialized: {}", stats.initialized);
-            println!("   Current Uptime: {} ms", stats.uptime_ms);
-            
+            log_info!("kernel", "Time system initialized with {:?} timer", stats.active_timer);
+
             // Initialize system time from RTC
-            match time::init_system_time_from_rtc() {
-                Ok(()) => {
-                    let system_time = time::system_time();
-                    println!("   System Time: {} (Unix timestamp)", system_time);
-                    log_info!("kernel", "System time initialized from RTC: {}", system_time);
-                }
-                Err(e) => {
-                    println!("   Warning: RTC time initialization failed: {}", e);
-                    log_warning!("kernel", "RTC time initialization failed: {}", e);
-                }
+            if let Ok(()) = time::init_system_time_from_rtc() {
+                log_info!("kernel", "System time initialized from RTC: {}", time::system_time());
             }
-            
-            // Log successful initialization
-            log_info!("kernel", "Time management system initialized with {:?} timer", stats.active_timer);
+            true
         }
         Err(e) => {
-            unsafe {
-                early_serial_write_str("RustOS: Time system initialization failed\r\n");
-            }
-            println!("❌ Time system init failed: {}, using basic timing", e);
             log_error!("kernel", "Time system initialization failed: {}", e);
-        }
-    }
-    
-    boot_display::boot_delay();
-    
-    boot_display::show_boot_progress(4, 5, "Starting Keyboard System");
-    keyboard::init();
-    boot_display::boot_delay();
-
-    boot_display::show_boot_progress(5, 5, "Loading Linux Userspace");
-    println!("\n🐧 Initializing Alpine Linux Userspace...");
-    match initramfs::init_initramfs() {
-        Ok(_) => println!("✅ Alpine Linux 3.19 loaded (3.1 MB)"),
-        Err(_) => println!("⚠️  Initramfs initialization incomplete"),
-    }
-    boot_display::boot_delay();
-
-    // Initialize Linux integration layer
-    println!("\n🔗 Initializing Deep Linux Integration...");
-    println!("   Wiring Linux APIs to native RustOS kernel subsystems...");
-    match linux_integration::init() {
-        Ok(_) => {
-            println!("✅ Linux Integration initialized successfully!");
-            println!("   • File operations -> VFS");
-            println!("   • Process operations -> Process Manager");
-            println!("   • Socket operations -> Network Stack");
-            println!("   • Memory operations -> Memory Manager");
-            println!("   • Time operations -> Time Subsystem");
-            
-            // Update kernel subsystem state
-            if let Err(e) = crate::kernel::update_subsystem_state("linux_compat", crate::kernel::SubsystemState::Ready) {
-                println!("⚠️  Failed to update linux_compat state: {}", e);
-            }
-            if let Err(e) = crate::kernel::update_subsystem_state("linux_integration", crate::kernel::SubsystemState::Ready) {
-                println!("⚠️  Failed to update linux_integration state: {}", e);
-            }
-        }
-        Err(e) => {
-            println!("⚠️  Linux Integration initialization failed: {}", e);
-            println!("   Continuing with native kernel only");
-        }
-    }
-    println!("   RustOS kernel remains the main driver");
-    boot_display::boot_delay();
-
-    println!("\n🚀 RustOS Desktop Selection");
-    println!("Current kernel can boot to either:");
-    println!("1. Simple Text Desktop (MS-DOS style) - Old Implementation");
-    println!("2. Modern Graphics Desktop (Current style) - New Implementation");
-    println!();
-    unsafe {
-        early_serial_write_str("RustOS: Desktop selection ready, initializing graphics\r\n");
-    }
-    
-    // For demonstration, let's try to initialize graphics but fall back gracefully
-    let graphics_initialized = {
-        println!("Attempting to initialize modern graphics desktop...");
-        
-        // Use a safe memory area that won't cause crashes
-        let graphics_buffer_addr = 0xC0000; // Safe area in upper memory
-        let width = 640;   
-        let height = 480;
-        
-        println!("Setting up {}x{} framebuffer at 0x{:x}", width, height, graphics_buffer_addr);
-        
-        // Create framebuffer info for our graphics system  
-        let fb_info = graphics::FramebufferInfo::new(
-            width,
-            height,
-            graphics::PixelFormat::RGBA8888, // 32-bit color
-            graphics_buffer_addr,
-            false, // No GPU acceleration for now
-        );
-        
-        // Try to initialize graphics
-        match graphics::init(fb_info, false) {
-            Ok(()) => {
-                println!("✅ Graphics system initialized successfully!");
-                println!("🖥️  Modern Desktop Environment Ready");
-                true
-            }
-            Err(e) => {
-                println!("❌ Failed to initialize graphics: {}", e);
-                println!("⬇️  Falling back to simple desktop");
-                false
-            }
+            false
         }
     };
 
-    println!();
-    if graphics_initialized {
-        println!("🎨 Launching MODERN DESKTOP ENVIRONMENT");
-        println!("   Features:");
-        println!("   • Modern gradient backgrounds");
-        println!("   • Overlapping windows with shadows");
-        println!("   • Glass-effect taskbar and dock");
-        println!("   • Contemporary color scheme");
-        println!("   • Hardware-accelerated graphics");
-        println!();
-        
-        // Initialize modern desktop environment
-        match desktop::setup_full_desktop() {
-            Ok(()) => {
-                println!("✅ Modern desktop initialized successfully!");
-                modern_desktop_main_loop()
+    // ========================================================================
+    // PHASE 8: File System Mount
+    // ========================================================================
+    let fs_result = boot_ui::filesystem_mount_progress();
+
+    // Initialize Linux integration layer
+    boot_display::show_subsystem_init("Linux Integration Layer", boot_display::SubsystemStatus::Initializing);
+    match linux_integration::init() {
+        Ok(_) => {
+            boot_display::show_subsystem_init("Linux Integration Layer", boot_display::SubsystemStatus::Ready);
+            if let Err(e) = crate::kernel::update_subsystem_state("linux_compat", crate::kernel::SubsystemState::Ready) {
+                log_warn!("kernel", "Failed to update linux_compat state: {}", e);
             }
-            Err(e) => {
-                println!("❌ Desktop initialization failed: {}", e);
-                println!("⬇️  Falling back to simple desktop");
-                simple_desktop::init_desktop();
-                desktop_main_loop()
+            if let Err(e) = crate::kernel::update_subsystem_state("linux_integration", crate::kernel::SubsystemState::Ready) {
+                log_warn!("kernel", "Failed to update linux_integration state: {}", e);
             }
         }
+        Err(e) => {
+            boot_display::show_subsystem_init("Linux Integration Layer", boot_display::SubsystemStatus::Warning);
+            log_warn!("kernel", "Linux Integration initialization failed: {}", e);
+        }
+    }
+
+    // ========================================================================
+    // PHASE 9: Graphics Initialization
+    // ========================================================================
+    let graphics_result = boot_ui::graphics_init_progress();
+
+    // Decide boot mode based on graphics initialization
+    let use_graphics_desktop = graphics_result.framebuffer_ready && !graphics_result.fallback_to_text;
+
+    // ========================================================================
+    // PHASE 10: Desktop Environment Initialization
+    // ========================================================================
+    let desktop_result = if use_graphics_desktop {
+        boot_ui::desktop_init_progress()
     } else {
-        println!("📺 Launching SIMPLE TEXT DESKTOP (MS-DOS Style)");
-        println!("   Features:");
-        println!("   • Text-based interface");
-        println!("   • 80x25 character display");
-        println!("   • Basic window simulation");
-        println!("   • VGA text mode");
+        // Skip desktop init for text mode
+        boot_ui::begin_stage(boot_ui::BootStage::DesktopInit, 1);
+        boot_ui::update_substage(1, "Preparing text-mode desktop...");
+        boot_ui::report_warning("Desktop", "Using text-mode interface");
+        boot_ui::complete_stage(boot_ui::BootStage::DesktopInit);
+        boot_ui::DesktopInitResult::new()
+    };
+
+    // ========================================================================
+    // Boot Complete Summary
+    // ========================================================================
+    let boot_time = if time_initialized { time::uptime_ms() } else { 0 };
+    boot_ui::boot_complete_summary();
+    boot_display::show_boot_complete(boot_time);
+
+    // Show first boot information
+    boot_ui::show_first_boot_info(&hardware_result, &memory_result);
+
+    // Brief pause before transitioning to desktop
+    boot_ui::boot_delay_medium();
+
+    // ========================================================================
+    // Transition to Desktop Environment
+    // ========================================================================
+    boot_ui::transition_to_desktop();
+
+    unsafe {
+        early_serial_write_str("RustOS: Boot sequence complete, entering desktop\r\n");
+    }
+
+    // Launch appropriate desktop environment
+    if use_graphics_desktop && desktop_result.window_manager_ready {
         println!();
-        
-        // Demonstrate the new error handling and logging system
+        println!("Launching MODERN GRAPHICS DESKTOP");
+        println!("   Resolution: {}x{}", graphics_result.width, graphics_result.height);
+        println!("   GPU Acceleration: {}", if graphics_result.gpu_accelerated { "Enabled" } else { "Software" });
+        println!();
+
+        // Enter modern desktop main loop
+        modern_desktop_main_loop()
+    } else {
+        // Fall back to text mode desktop
+        handle_graphics_fallback();
+
+        println!();
+        println!("Launching TEXT MODE DESKTOP");
+        println!("   Mode: 80x25 VGA Text");
+        println!("   Interface: MS-DOS Style");
+        println!();
+
+        // Run demonstrations
         demonstrate_error_handling_and_logging();
-
-        // Run comprehensive tests if requested
         demonstrate_comprehensive_testing();
-
-        // Initialize package management system
         demonstrate_package_manager();
-
-        // Initialize and demonstrate Linux compatibility layer
         demonstrate_linux_compat();
 
         simple_desktop::init_desktop();
         desktop_main_loop()
     }
+}
+
+/// Handle graphics initialization failure with user options
+fn handle_graphics_fallback() {
+    let progress = boot_ui::boot_progress();
+
+    if progress.is_safe_mode() {
+        boot_display::show_safe_mode_banner();
+        return;
+    }
+
+    // Show error information
+    boot_ui::show_graphics_error("Graphics initialization failed or unsupported hardware");
+
+    println!();
+    println!("  Automatically continuing in text mode...");
+    boot_ui::boot_delay_medium();
 }
 
 /// Demonstrate the new error handling and logging system
@@ -747,61 +670,278 @@ fn desktop_main_loop() -> ! {
 }
 
 /// Modern desktop loop that handles graphics-based desktop
+///
+/// This is the main event loop for the graphical desktop environment.
+/// It handles:
+/// - Keyboard input routing to windows
+/// - Mouse cursor rendering and movement
+/// - Window focus, dragging, and interaction
+/// - Periodic desktop updates and rendering
 fn modern_desktop_main_loop() -> ! {
+    // Desktop state
     let mut update_counter: u64 = 0;
-    let mut _frame_counter: usize = 0;
+    let mut frame_counter: usize = 0;
+    let mut last_render_time: u64 = 0;
+    let target_frame_time_ms: u64 = 16; // ~60 FPS target
 
+    // Mouse state for software cursor
+    let mut mouse_x: usize = 320;  // Start at center
+    let mut mouse_y: usize = 240;
+    let mut mouse_button_left: bool = false;
+    let mut mouse_button_right: bool = false;
+
+    // Window interaction state
+    let mut _dragging_window: Option<desktop::WindowId> = None;
+    let mut _drag_start_x: usize = 0;
+    let mut _drag_start_y: usize = 0;
+    let mut _window_start_x: usize = 0;
+    let mut _window_start_y: usize = 0;
+
+    // Initial render
+    desktop::invalidate_desktop();
+    desktop::render_desktop();
+
+    // Main event loop
     loop {
-        // Process keyboard events and forward to desktop
+        let current_time = time::uptime_ms();
+
+        // ====================================================================
+        // Input Processing Phase
+        // ====================================================================
+
+        // Process all pending keyboard events
         while let Some(key_event) = keyboard::get_key_event() {
             match key_event {
                 keyboard::KeyEvent::CharacterPress(c) => {
-                    desktop::handle_key_down(c as u8);
+                    // Route character input to focused window
+                    handle_keyboard_character(c, &mut mouse_x, &mut mouse_y,
+                                               &mut mouse_button_left, &mut mouse_button_right);
                 }
                 keyboard::KeyEvent::SpecialPress(special_key) => {
-                    // Map special keys to desktop key codes
-                    let key_code = match special_key {
-                        keyboard::SpecialKey::Escape => 27, // ESC
-                        keyboard::SpecialKey::Enter => 13,  // Enter
-                        keyboard::SpecialKey::Backspace => 8, // Backspace
-                        keyboard::SpecialKey::Tab => 9,     // Tab
-                        keyboard::SpecialKey::F1 => 112,   // F1
-                        keyboard::SpecialKey::F2 => 113,   // F2
-                        keyboard::SpecialKey::F3 => 114,   // F3
-                        keyboard::SpecialKey::F4 => 115,   // F4
-                        keyboard::SpecialKey::F5 => 116,   // F5
-                        _ => continue, // Ignore other special keys for now
-                    };
-                    
-                    desktop::handle_key_down(key_code);
+                    // Handle special keys (function keys, modifiers, etc.)
+                    handle_special_key(special_key, &mut mouse_x, &mut mouse_y);
                 }
-                _ => {
-                    // Ignore key releases for now
+                keyboard::KeyEvent::CharacterRelease(_) |
+                keyboard::KeyEvent::SpecialRelease(_) => {
+                    // Key release events - could be used for modifier tracking
                 }
             }
         }
 
-        // Update desktop periodically
-        if update_counter.is_multiple_of(100_000) {
+        // Update cursor position in window manager
+        desktop::handle_mouse_move(mouse_x, mouse_y);
+
+        // Handle mouse button state
+        if mouse_button_left {
+            desktop::handle_mouse_down(mouse_x, mouse_y, desktop::MouseButton::Left);
+            mouse_button_left = false; // Single click
+        }
+
+        // ====================================================================
+        // Desktop Update Phase
+        // ====================================================================
+
+        // Process pending desktop events
+        if update_counter.is_multiple_of(1000) {
+            desktop::process_desktop_events();
+        }
+
+        // Update desktop state periodically
+        if update_counter.is_multiple_of(10_000) {
             desktop::update_desktop();
         }
 
-        // Render desktop periodically
-        if update_counter.is_multiple_of(200_000) {
+        // ====================================================================
+        // Rendering Phase
+        // ====================================================================
+
+        // Render at target frame rate or when needed
+        let should_render = desktop::desktop_needs_redraw() ||
+                           (current_time >= last_render_time + target_frame_time_ms);
+
+        if should_render {
+            // Render the desktop (windows, taskbar, dock)
             desktop::render_desktop();
-            _frame_counter += 1;
+
+            // Render mouse cursor overlay
+            render_mouse_cursor(mouse_x, mouse_y, mouse_button_left);
+
+            // Present the frame
+            graphics::framebuffer::present();
+
+            frame_counter += 1;
+            last_render_time = current_time;
+
+            // Log frame rate periodically (every 60 frames)
+            if frame_counter % 60 == 0 {
+                log_debug!("desktop", "Frame {}, uptime {}ms", frame_counter, current_time);
+            }
         }
 
-        // Check if desktop needs redraw
-        if desktop::desktop_needs_redraw() {
-            desktop::render_desktop();
-            _frame_counter += 1;
+        // ====================================================================
+        // System Tasks Phase
+        // ====================================================================
+
+        // Periodic system maintenance
+        if update_counter.is_multiple_of(1_000_000) {
+            // Update system time display (if applicable)
+            // Check system health
+            // Process deferred operations
         }
 
-        update_counter += 1;
+        update_counter = update_counter.wrapping_add(1);
 
         // Halt CPU until next interrupt to save power
         unsafe { core::arch::asm!("hlt"); }
+    }
+}
+
+/// Handle keyboard character input with mouse simulation
+fn handle_keyboard_character(c: char, mouse_x: &mut usize, mouse_y: &mut usize,
+                              button_left: &mut bool, _button_right: &mut bool) {
+    let key_code = c as u8;
+
+    // Mouse simulation keys (WASD or similar)
+    match c {
+        // WASD for mouse movement
+        'w' | 'W' => *mouse_y = mouse_y.saturating_sub(5),
+        'a' | 'A' => *mouse_x = mouse_x.saturating_sub(5),
+        's' | 'S' => *mouse_y = (*mouse_y + 5).min(479),
+        'd' | 'D' => *mouse_x = (*mouse_x + 5).min(639),
+        // Space for left click
+        ' ' => *button_left = true,
+        _ => {
+            // Forward to desktop/window manager
+            desktop::handle_key_down(key_code);
+        }
+    }
+
+    // Log significant keypresses for debugging
+    if key_code == 27 { // ESC
+        log_debug!("input", "ESC pressed - could trigger menu");
+    }
+}
+
+/// Handle special key presses (function keys, arrows, etc.)
+fn handle_special_key(special_key: keyboard::SpecialKey, mouse_x: &mut usize, mouse_y: &mut usize) {
+    // Arrow keys for cursor movement
+    let move_amount = 10;
+    match special_key {
+        keyboard::SpecialKey::ArrowUp => {
+            *mouse_y = mouse_y.saturating_sub(move_amount);
+            desktop::handle_mouse_move(*mouse_x, *mouse_y);
+            return;
+        }
+        keyboard::SpecialKey::ArrowDown => {
+            *mouse_y = (*mouse_y + move_amount).min(479);
+            desktop::handle_mouse_move(*mouse_x, *mouse_y);
+            return;
+        }
+        keyboard::SpecialKey::ArrowLeft => {
+            *mouse_x = mouse_x.saturating_sub(move_amount);
+            desktop::handle_mouse_move(*mouse_x, *mouse_y);
+            return;
+        }
+        keyboard::SpecialKey::ArrowRight => {
+            *mouse_x = (*mouse_x + move_amount).min(639);
+            desktop::handle_mouse_move(*mouse_x, *mouse_y);
+            return;
+        }
+        _ => {}
+    }
+
+    let key_code = match special_key {
+        keyboard::SpecialKey::Escape => 27,
+        keyboard::SpecialKey::Enter => 13,
+        keyboard::SpecialKey::Backspace => 8,
+        keyboard::SpecialKey::Tab => 9,
+        keyboard::SpecialKey::F1 => 112,  // Help
+        keyboard::SpecialKey::F2 => 113,  // Rename
+        keyboard::SpecialKey::F3 => 114,  // Search
+        keyboard::SpecialKey::F4 => 115,  // Close (Alt+F4)
+        keyboard::SpecialKey::F5 => 116,  // Refresh
+        keyboard::SpecialKey::F6 => 117,
+        keyboard::SpecialKey::F7 => 118,
+        keyboard::SpecialKey::F8 => 119,
+        keyboard::SpecialKey::F9 => 120,
+        keyboard::SpecialKey::F10 => 121,
+        keyboard::SpecialKey::F11 => 122, // Fullscreen
+        keyboard::SpecialKey::F12 => 123, // Debug console
+        keyboard::SpecialKey::Insert => 45,
+        keyboard::SpecialKey::Delete => 46,
+        keyboard::SpecialKey::Home => 36,
+        keyboard::SpecialKey::End => 35,
+        keyboard::SpecialKey::PageUp => 33,
+        keyboard::SpecialKey::PageDown => 34,
+        _ => return, // Already handled or ignore
+    };
+
+    desktop::handle_key_down(key_code);
+
+    // Handle special window operations
+    match special_key {
+        keyboard::SpecialKey::F4 => {
+            // Close focused window (would need Alt modifier check)
+            log_debug!("input", "F4 pressed - close window shortcut");
+        }
+        keyboard::SpecialKey::F11 => {
+            // Toggle fullscreen
+            log_debug!("input", "F11 pressed - fullscreen toggle");
+        }
+        keyboard::SpecialKey::F12 => {
+            // Debug console toggle
+            log_debug!("input", "F12 pressed - debug console");
+        }
+        _ => {}
+    }
+}
+
+/// Render the mouse cursor at the specified position
+fn render_mouse_cursor(x: usize, y: usize, pressed: bool) {
+    // Get screen dimensions for bounds checking
+    let (max_x, max_y) = if let Some((w, h)) = graphics::get_screen_dimensions() {
+        (w, h)
+    } else {
+        return; // No framebuffer available
+    };
+
+    // Cursor color based on state
+    let cursor_color = if pressed {
+        graphics::Color::rgb(255, 200, 0) // Yellow when pressed
+    } else {
+        graphics::Color::WHITE
+    };
+
+    // Cursor shadow for visibility
+    let shadow_color = graphics::Color::rgb(0, 0, 0);
+
+    // Simple arrow cursor pattern (12 pixels tall)
+    let cursor_pattern: [(usize, usize); 21] = [
+        (0, 0),
+        (0, 1), (1, 1),
+        (0, 2), (1, 2), (2, 2),
+        (0, 3), (1, 3), (2, 3), (3, 3),
+        (0, 4), (1, 4), (2, 4), (3, 4), (4, 4),
+        (0, 5), (1, 5), (2, 5),
+        (0, 6), (1, 6), (3, 6),
+    ];
+
+    // Draw shadow first (offset by 1 pixel)
+    for &(dx, dy) in cursor_pattern.iter() {
+        let px = x + dx + 1;
+        let py = y + dy + 1;
+        if px < max_x && py < max_y {
+            graphics::framebuffer::set_pixel(px, py, shadow_color);
+        }
+    }
+
+    // Draw cursor
+    for &(dx, dy) in cursor_pattern.iter() {
+        let px = x + dx;
+        let py = y + dy;
+        if px < max_x && py < max_y {
+            graphics::framebuffer::set_pixel(px, py, cursor_color);
+        }
     }
 }
 

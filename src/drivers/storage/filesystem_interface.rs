@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageError, StorageDeviceInfo};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 

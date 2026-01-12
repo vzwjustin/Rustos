@@ -4,6 +4,7 @@
 //! implementations against the requirements specified in the design document.
 
 use alloc::{vec::Vec, vec, string::{String, ToString}, collections::BTreeMap};
+use crate::println;
 use crate::testing_framework::{TestFramework, TestStats, TestResult, TestExecutionResult};
 use crate::testing::{
     integration_tests, stress_tests, benchmarking, security_tests, hardware_tests

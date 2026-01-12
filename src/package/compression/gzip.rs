@@ -4,7 +4,7 @@
 //! This is a minimal implementation - for production use, consider
 //! integrating a full implementation like flate2 or miniz_oxide.
 
-use alloc::vec::Vec;
+use alloc::{vec::Vec, format};
 use crate::package::{PackageResult, PackageError};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
@@ -98,13 +98,83 @@ impl GzipDecoder {
     }
 
     /// Decompress DEFLATE-compressed data using miniz_oxide
+    ///
+    /// This implementation uses miniz_oxide's core streaming decompressor
+    /// for no_std compatibility. It handles raw DEFLATE data as used by gzip.
     fn decompress_deflate(compressed: &[u8]) -> PackageResult<Vec<u8>> {
-        use miniz_oxide::inflate::decompress_to_vec;
+        use miniz_oxide::inflate::core::{
+            decompress as tinfl_decompress,
+            DecompressorOxide,
+        };
+        use miniz_oxide::inflate::TINFLStatus;
 
-        decompress_to_vec(compressed)
-            .map_err(|e| PackageError::ExtractionError(
-                format!("DEFLATE decompression failed: {:?}", e)
-            ))
+        // Flags for raw DEFLATE (gzip uses raw deflate without zlib wrapper)
+        // TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF is set because we're using a Vec
+        const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: u32 = 0x00000008;
+
+        let mut decompressor = DecompressorOxide::new();
+        let mut output = Vec::with_capacity(compressed.len() * 4);
+        let mut in_pos = 0;
+
+        loop {
+            let in_buf = &compressed[in_pos..];
+            let out_cur_pos = output.len();
+
+            // Reserve space for decompressed data (32KB chunks)
+            output.resize(out_cur_pos + 32768, 0);
+
+            // The decompress function takes the full output buffer and a position
+            let (status, bytes_in, bytes_out) = tinfl_decompress(
+                &mut decompressor,
+                in_buf,
+                &mut output,
+                out_cur_pos,
+                TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+            );
+
+            // Truncate to actual output size
+            output.truncate(out_cur_pos + bytes_out);
+            in_pos += bytes_in;
+
+            match status {
+                TINFLStatus::Done => {
+                    output.shrink_to_fit();
+                    return Ok(output);
+                }
+                TINFLStatus::HasMoreOutput => {
+                    // Need more output space, continue
+                    continue;
+                }
+                TINFLStatus::NeedsMoreInput => {
+                    if in_pos >= compressed.len() {
+                        return Err(PackageError::ExtractionError(
+                            "Incomplete DEFLATE stream: unexpected end of input".into()
+                        ));
+                    }
+                    continue;
+                }
+                TINFLStatus::BadParam => {
+                    return Err(PackageError::ExtractionError(
+                        "DEFLATE decompression failed: bad parameter".into()
+                    ));
+                }
+                TINFLStatus::Adler32Mismatch => {
+                    return Err(PackageError::ExtractionError(
+                        "DEFLATE decompression failed: checksum mismatch".into()
+                    ));
+                }
+                TINFLStatus::Failed => {
+                    return Err(PackageError::ExtractionError(
+                        "DEFLATE decompression failed: corrupted data".into()
+                    ));
+                }
+                TINFLStatus::FailedCannotMakeProgress => {
+                    return Err(PackageError::ExtractionError(
+                        "DEFLATE decompression failed: cannot make progress".into()
+                    ));
+                }
+            }
+        }
     }
 
     /// Validate gzip format without decompression

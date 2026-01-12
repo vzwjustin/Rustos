@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageError, StorageStats};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::mem;
 use core::ptr;
 
@@ -913,8 +914,8 @@ impl StorageDriver for NvmeDriver {
             memory_manager.translate_addr(virt_addr)
                 .ok_or(StorageError::HardwareError)?
                 .as_u64()
-        }
-        
+        };
+
         unsafe {
             let sq_entry_ptr = admin_sq_base as *mut u64;
             

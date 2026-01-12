@@ -2,6 +2,7 @@
 //!
 //! This module provides test utilities and test cases for the package management system.
 
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use crate::package::{

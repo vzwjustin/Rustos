@@ -4,6 +4,7 @@
 
 #![allow(dead_code)]
 
+use alloc::format;
 use super::*;
 
 /// Example 1: Basic file operations

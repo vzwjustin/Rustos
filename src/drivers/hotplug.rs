@@ -498,44 +498,41 @@ impl HotplugManager {
         #[cfg(not(test))]
         {
             use crate::pci;
-            // Enumerate all PCI devices
-            match pci::enumerate_devices() {
-                Ok(devices) => {
+            // Get all PCI devices
+            let pci_devices = pci::get_all_devices();
+            let current_devices = self.devices.read();
+
+            for device in pci_devices {
+                // Create a unique device ID string from PCI location
+                let pci_device_id = format!("pci_{:02x}:{:02x}.{:x}_{:04x}:{:04x}",
+                    device.bus, device.device, device.function,
+                    device.vendor_id, device.device_id);
+
+                // If device not in our registry, it's new
+                if !current_devices.contains_key(&pci_device_id) {
+                    new_devices += 1;
+                    drop(current_devices);
+
+                    // Create device info
+                    let device_info = DeviceInfo::new(
+                        device.vendor_id,
+                        device.device_id,
+                        device.class as u8,
+                        device.subclass,
+                        device.prog_if,
+                        device.revision,
+                        device.bus,
+                        device.device,
+                        device.function,
+                        device.name.clone(),
+                    );
+
+                    // Add the device using existing mechanism
+                    let _ = self.add_device(device_info);
+
+                    // Re-acquire read lock for next iteration
                     let current_devices = self.devices.read();
-
-                    for device in devices {
-                        // Check if device is already known
-                        let device_id = HotplugDeviceId::Pci {
-                            vendor_id: device.vendor_id,
-                            device_id: device.device_id,
-                            bus: device.bus,
-                            slot: device.slot,
-                            function: device.function,
-                        };
-
-                        // If device not in our registry, it's new
-                        if !current_devices.contains_key(&device_id) {
-                            new_devices += 1;
-
-                            // Drop read lock before acquiring write lock
-                            drop(current_devices);
-
-                            // Trigger device added event
-                            let event = HotplugEvent {
-                                event_type: HotplugEventType::DeviceAdded,
-                                device_id: device_id.clone(),
-                                timestamp: crate::time::get_system_time_ms(),
-                            };
-
-                            self.handle_event(event)?;
-
-                            // Re-acquire read lock for next iteration
-                            let current_devices = self.devices.read();
-                        }
-                    }
-                }
-                Err(_) => {
-                    // PCI enumeration failed - not critical
+                    let _ = current_devices; // Suppress warning
                 }
             }
         }

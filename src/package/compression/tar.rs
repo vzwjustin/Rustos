@@ -6,6 +6,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
+use alloc::format;
 use core::str;
 use crate::package::{PackageResult, PackageError};
 

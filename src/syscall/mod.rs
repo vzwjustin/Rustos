@@ -821,27 +821,26 @@ fn sys_open(pathname: u64, flags: u32) -> SyscallResult {
 }
 
 /// Convert POSIX open flags to VFS open flags
-fn convert_posix_flags_to_vfs(flags: u32) -> crate::fs::OpenFlags {
-    let mut open_flags = crate::fs::OpenFlags::empty();
-    
+fn convert_posix_flags_to_vfs(flags: u32) -> crate::fs::SyscallOpenFlags {
+    use crate::fs::SyscallOpenFlags;
+
+    let mut open_flags = SyscallOpenFlags::empty();
+
     // Access mode (O_RDONLY=0, O_WRONLY=1, O_RDWR=2)
     let access_mode = flags & 0x3;
     match access_mode {
-        0 => open_flags.insert(crate::fs::OpenFlags::READ),      // O_RDONLY
-        1 => open_flags.insert(crate::fs::OpenFlags::WRITE),     // O_WRONLY
-        2 => {                                                   // O_RDWR
-            open_flags.insert(crate::fs::OpenFlags::READ());
-            open_flags.insert(crate::fs::OpenFlags::WRITE);
-        },
-        _ => open_flags.insert(crate::fs::OpenFlags::READ()),    // Default to read-only
+        0 => open_flags.insert(SyscallOpenFlags::READ),      // O_RDONLY
+        1 => open_flags.insert(SyscallOpenFlags::WRITE),     // O_WRONLY
+        2 => open_flags.insert(SyscallOpenFlags::RDWR),      // O_RDWR
+        _ => open_flags.insert(SyscallOpenFlags::READ),      // Default to read-only
     }
-    
+
     // Other flags
-    if (flags & 0x40) != 0 { open_flags.insert(crate::fs::OpenFlags::CREATE); }    // O_CREAT
-    if (flags & 0x80) != 0 { open_flags.insert(crate::fs::OpenFlags::EXCL); }      // O_EXCL
-    if (flags & 0x200) != 0 { open_flags.insert(crate::fs::OpenFlags::TRUNC); }    // O_TRUNC
-    if (flags & 0x400) != 0 { open_flags.insert(crate::fs::OpenFlags::APPEND); }   // O_APPEND
-    
+    if (flags & 0x40) != 0 { open_flags.insert(SyscallOpenFlags::CREAT); }     // O_CREAT
+    if (flags & 0x80) != 0 { open_flags.insert(SyscallOpenFlags::EXCL); }      // O_EXCL
+    if (flags & 0x200) != 0 { open_flags.insert(SyscallOpenFlags::TRUNC); }    // O_TRUNC
+    if (flags & 0x400) != 0 { open_flags.insert(SyscallOpenFlags::APPEND); }   // O_APPEND
+
     open_flags
 }
 

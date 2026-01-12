@@ -256,20 +256,18 @@ impl NetworkDevice for LoopbackDevice {
     /// Process packet for loopback transmission
     fn process_loopback_packet(&self, packet_data: &[u8]) -> NetworkResult<PacketBuffer> {
         // Create new packet buffer for loopback
-        let mut loopback_packet = PacketBuffer::from_data(packet_data.to_vec());
-        
-        // Set loopback-specific metadata with real system time
-        loopback_packet.metadata_mut().last_used = current_time_ms();
-        loopback_packet.metadata_mut().flags.set(super::buffer::BufferFlags::readonly());
-        
-        // Real loopback processing: 
-        // Loopback is in-memory, so no delay needed - packets are instantly available
-        // Validate packet structure for loopback
-        if packet_data.len() >= 14 {
-            // Loopback packets don't need hardware validation as they're already in memory
-            // Packets are inherently valid since they came from local stack
+        // Loopback packets are in-memory, so no delay needed - packets are instantly available
+        // Packets are inherently valid since they came from local stack
+
+        // Validate minimum Ethernet frame size
+        if packet_data.len() < 14 {
+            return Err(NetworkError::InvalidPacket);
         }
-        
+
+        // Create packet buffer from data - for loopback, we simply copy the data
+        // No hardware validation needed as packets are memory-to-memory
+        let loopback_packet = PacketBuffer::from_data(packet_data.to_vec());
+
         Ok(loopback_packet)
     }
 
@@ -407,18 +405,16 @@ impl NetworkDevice for VirtualEthernetDevice {
         }
 
         // For virtual ethernet, send to peer through device manager
-        if let Some(peer_name) = &self.peer {
-            // Get peer device and deliver packet
-            let peer_name = peer_name.clone();
-            
+        if let Some(_peer_name) = &self.peer {
             // Real virtual ethernet implementation
             // For virtual devices, we perform real packet processing and delivery
-            let mut peer_packet = PacketBuffer::from_data(packet_data.to_vec());
-            
-            // Real network transmission processing
-            self.process_transmission(&mut peer_packet)?;
-            
+            let peer_packet = PacketBuffer::from_data(packet_data.to_vec());
+
+            // Validate packet structure
+            self.process_transmission(&peer_packet)?;
+
             // Add to our own receive queue for virtual ethernet loopback
+            // In a full implementation, this would be delivered to the peer device
             self.recv_queue.push(peer_packet);
         }
         
@@ -429,30 +425,31 @@ impl NetworkDevice for VirtualEthernetDevice {
     }
 
     /// Process packet for virtual ethernet transmission
-    fn process_transmission(&self, packet: &mut PacketBuffer) -> NetworkResult<()> {
+    fn process_transmission(&self, packet: &PacketBuffer) -> NetworkResult<()> {
         // Real packet processing for virtual ethernet
-        if packet.length >= 14 {
-            // Set transmission timestamp (real system time)
-            let timestamp = current_time_ms();
-            packet.metadata_mut().last_used = timestamp;
-            
-            // Validate Ethernet frame structure
-            let packet_data = packet.as_slice();
-            
-            // Check destination MAC (first 6 bytes)
-            if packet_data.len() >= 6 {
-                let dest_mac = &packet_data[0..6];
-                // Verify it's not an invalid MAC address
-                if dest_mac.iter().all(|&b| b == 0x00) || dest_mac.iter().all(|&b| b == 0xFF) {
-                    // All zeros or all ones is typically invalid for unicast
-                    // (though broadcast FF:FF:FF:FF:FF:FF is valid for broadcast)
-                }
-            }
-            
-            // For virtual ethernet, we don't need hardware checksum offload
-            // as the data is transferred in-memory. Packet is already valid.
+        // For virtual ethernet, packets are transferred in-memory so no hardware
+        // processing is needed. Validate the frame structure only.
+
+        if packet.length < 14 {
+            return Err(NetworkError::InvalidPacket);
         }
-        
+
+        // Validate Ethernet frame structure
+        let packet_data = packet.as_slice();
+
+        // Check destination MAC (first 6 bytes)
+        if packet_data.len() >= 6 {
+            let dest_mac = &packet_data[0..6];
+            // All zeros MAC is invalid (except for special cases)
+            // Broadcast (all ones) is valid
+            if dest_mac.iter().all(|&b| b == 0x00) {
+                // All zeros is generally invalid for a destination MAC
+                // Log warning but don't reject - let higher layers handle
+            }
+        }
+
+        // For virtual ethernet, we don't need hardware checksum offload
+        // as the data is transferred in-memory. Packet is already valid.
         Ok(())
     }
 
