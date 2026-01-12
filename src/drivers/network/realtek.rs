@@ -305,7 +305,7 @@ impl NetworkDriver for RealtekDriver {
         DeviceType::Ethernet
     }
 
-    fn mac_address(&self) -> MacAddress {
+    fn get_mac_address(&self) -> MacAddress {
         self.mac_address
     }
 

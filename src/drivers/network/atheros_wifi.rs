@@ -329,7 +329,7 @@ impl super::NetworkDriver for AtherosWifiDriverWrapper {
         Ok(())
     }
 
-    fn send(&mut self, _data: &[u8]) -> Result<(), crate::net::NetworkError> {
+    fn send_packet(&mut self, _data: &[u8]) -> Result<(), crate::net::NetworkError> {
         if self.inner.state() != AtherosDriverState::Connected {
             return Err(crate::net::NetworkError::NotConnected);
         }
@@ -337,7 +337,7 @@ impl super::NetworkDriver for AtherosWifiDriverWrapper {
         Err(crate::net::NetworkError::NotImplemented)
     }
 
-    fn receive(&mut self) -> Result<Option<Vec<u8>>, crate::net::NetworkError> {
+    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, crate::net::NetworkError> {
         if self.inner.state() != AtherosDriverState::Connected {
             return Err(crate::net::NetworkError::NotConnected);
         }
@@ -345,7 +345,7 @@ impl super::NetworkDriver for AtherosWifiDriverWrapper {
         Ok(None)
     }
 
-    fn mac_address(&self) -> crate::net::MacAddress {
+    fn get_mac_address(&self) -> crate::net::MacAddress {
         crate::net::MacAddress::new(self.inner.mac_address())
     }
 
@@ -360,15 +360,9 @@ impl super::NetworkDriver for AtherosWifiDriverWrapper {
         }
     }
 
-    fn link_up(&self) -> bool {
-        self.inner.state() == AtherosDriverState::Connected
-    }
-
-    fn link_speed(&self) -> u32 {
-        if self.inner.state() == AtherosDriverState::Connected {
-            867 // Estimated WiFi 5 speed
-        } else {
-            0
-        }
+    fn get_link_status(&self) -> (bool, u32, bool) {
+        let link_up = self.inner.state() == AtherosDriverState::Connected;
+        let speed = if link_up { 867 } else { 0 }; // WiFi 5 speed
+        (link_up, speed, true)
     }
 }

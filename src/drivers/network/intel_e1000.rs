@@ -1086,7 +1086,7 @@ impl NetworkDriver for IntelE1000Driver {
         (link_up, self.current_speed, self.full_duplex)
     }
 
-    fn get_statistics(&self) -> NetworkStats {
+    fn get_stats(&self) -> NetworkStats {
         NetworkStats {
             rx_packets: self.stats.rx_packets,
             tx_packets: self.stats.tx_packets,
