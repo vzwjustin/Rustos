@@ -4,6 +4,7 @@
 
 use x86_64::VirtAddr;
 use alloc::string::String;
+use alloc::boxed::Box;
 use core::ops::Range;
 
 /// Memory region type

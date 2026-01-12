@@ -917,29 +917,60 @@ pub fn init_acpi_tables() -> Result<(), &'static str> {
 pub fn validate_acpi_integrity() -> Result<(), &'static str> {
     let state = ACPI_STATE.read();
     let info = state.as_ref().ok_or("ACPI not initialized")?;
-    
+
     if !info.tables_initialized {
         return Err("ACPI tables not fully initialized");
     }
-    
+
     let tables = info.tables.as_ref().ok_or("ACPI tables not enumerated")?;
-    
+
     // Validate we have at least some basic tables
     if tables.descriptors.is_empty() {
         return Err("No ACPI tables found");
     }
-    
+
     // Check for critical tables
     let has_madt = find_table(b"APIC").is_some();
     let has_fadt = find_table(b"FACP").is_some();
-    
+
     if !has_fadt {
         return Err("Critical FADT table missing");
     }
-    
+
     if !has_madt {
         crate::serial_println!("Warning: MADT table not found - interrupt routing may be limited");
     }
-    
+
     Ok(())
+}
+
+/// Get the virtual address of a specific ACPI table by its signature
+///
+/// This function finds an ACPI table by its four-character signature and returns
+/// its virtual address if available. This is commonly used by device drivers and
+/// subsystems that need to access ACPI table data directly.
+///
+/// # Arguments
+/// * `signature` - Four-character ACPI table signature (e.g., b"MCFG", b"APIC")
+///
+/// # Returns
+/// * `Ok(usize)` - Virtual address of the table
+/// * `Err(&'static str)` - Error message if table not found or not mapped
+pub fn get_table_address(signature: &[u8; 4]) -> Result<usize, &'static str> {
+    let descriptor = find_table(signature).ok_or("ACPI table not found")?;
+
+    // Try to get virtual address first
+    if let Some(virt_addr) = descriptor.virt_addr {
+        return Ok(virt_addr);
+    }
+
+    // If virtual address not available, try to map it using physical memory offset
+    let state = ACPI_STATE.read();
+    let info = state.as_ref().ok_or("ACPI not initialized")?;
+    let physical_offset = info.physical_memory_offset.ok_or("Physical memory offset not available")?;
+
+    let virt_addr = phys_to_virt(descriptor.phys_addr, physical_offset)
+        .ok_or("Failed to map ACPI table virtual address")?;
+
+    Ok(virt_addr)
 }

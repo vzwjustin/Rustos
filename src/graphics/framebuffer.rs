@@ -3,6 +3,8 @@
 //! Hardware-accelerated framebuffer management for desktop UI rendering.
 //! Supports GPU-accelerated operations, multiple pixel formats, and high-resolution displays.
 
+use alloc::vec::Vec;
+
 /// Maximum supported resolution width
 pub const MAX_WIDTH: usize = 7680; // 8K width
 /// Maximum supported resolution height

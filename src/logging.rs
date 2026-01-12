@@ -4,6 +4,7 @@
 use core::fmt::{self, Write};
 use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use spin::{Mutex, RwLock};
 use lazy_static::lazy_static;

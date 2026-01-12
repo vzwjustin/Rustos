@@ -18,6 +18,8 @@ use spin::Mutex;
 use lazy_static::lazy_static;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU64;
+use x86_64::structures::paging::{PhysFrame, FrameAllocator};
+use x86_64::PhysAddr;
 
 use super::{GPUCapabilities, GPUVendor, GPUTier};
 

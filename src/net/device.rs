@@ -235,40 +235,22 @@ impl NetworkDevice for LoopbackDevice {
 
         // Real loopback packet transmission
         let packet_data = packet.as_slice();
-        
+
         // Validate packet
         if packet_data.is_empty() {
             return Err(NetworkError::InvalidPacket);
         }
-        
+
         // For loopback, perform real packet processing
         let mut loopback_packet = self.process_loopback_packet(packet_data)?;
-        
+
         // Add processed packet to receive queue
         self.recv_queue.push(loopback_packet);
-        
+
         self.stats.tx_packets += 1;
         self.stats.tx_bytes += packet_data.len() as u64;
-        
+
         Ok(())
-    }
-
-    /// Process packet for loopback transmission
-    fn process_loopback_packet(&self, packet_data: &[u8]) -> NetworkResult<PacketBuffer> {
-        // Create new packet buffer for loopback
-        // Loopback packets are in-memory, so no delay needed - packets are instantly available
-        // Packets are inherently valid since they came from local stack
-
-        // Validate minimum Ethernet frame size
-        if packet_data.len() < 14 {
-            return Err(NetworkError::InvalidPacket);
-        }
-
-        // Create packet buffer from data - for loopback, we simply copy the data
-        // No hardware validation needed as packets are memory-to-memory
-        let loopback_packet = PacketBuffer::from_data(packet_data.to_vec());
-
-        Ok(loopback_packet)
     }
 
     fn recv(&mut self) -> NetworkResult<Option<PacketBuffer>> {
@@ -303,6 +285,26 @@ impl NetworkDevice for LoopbackDevice {
             link_speed: None,
             duplex: None,
         }
+    }
+}
+
+impl LoopbackDevice {
+    /// Process packet for loopback transmission
+    fn process_loopback_packet(&self, packet_data: &[u8]) -> NetworkResult<PacketBuffer> {
+        // Create new packet buffer for loopback
+        // Loopback packets are in-memory, so no delay needed - packets are instantly available
+        // Packets are inherently valid since they came from local stack
+
+        // Validate minimum Ethernet frame size
+        if packet_data.len() < 14 {
+            return Err(NetworkError::InvalidPacket);
+        }
+
+        // Create packet buffer from data - for loopback, we simply copy the data
+        // No hardware validation needed as packets are memory-to-memory
+        let loopback_packet = PacketBuffer::from_data(packet_data.to_vec());
+
+        Ok(loopback_packet)
     }
 }
 
@@ -394,12 +396,12 @@ impl NetworkDevice for VirtualEthernetDevice {
 
         // Real packet transmission implementation
         let packet_data = packet.as_slice();
-        
+
         // Validate packet size
         if packet_data.len() < 14 { // Minimum Ethernet frame size (header only)
             return Err(NetworkError::InvalidPacket);
         }
-        
+
         if packet_data.len() > self.mtu as usize + 14 { // MTU + Ethernet header
             return Err(NetworkError::BufferOverflow);
         }
@@ -417,39 +419,10 @@ impl NetworkDevice for VirtualEthernetDevice {
             // In a full implementation, this would be delivered to the peer device
             self.recv_queue.push(peer_packet);
         }
-        
+
         self.stats.tx_packets += 1;
         self.stats.tx_bytes += packet_data.len() as u64;
-        
-        Ok(())
-    }
 
-    /// Process packet for virtual ethernet transmission
-    fn process_transmission(&self, packet: &PacketBuffer) -> NetworkResult<()> {
-        // Real packet processing for virtual ethernet
-        // For virtual ethernet, packets are transferred in-memory so no hardware
-        // processing is needed. Validate the frame structure only.
-
-        if packet.length < 14 {
-            return Err(NetworkError::InvalidPacket);
-        }
-
-        // Validate Ethernet frame structure
-        let packet_data = packet.as_slice();
-
-        // Check destination MAC (first 6 bytes)
-        if packet_data.len() >= 6 {
-            let dest_mac = &packet_data[0..6];
-            // All zeros MAC is invalid (except for special cases)
-            // Broadcast (all ones) is valid
-            if dest_mac.iter().all(|&b| b == 0x00) {
-                // All zeros is generally invalid for a destination MAC
-                // Log warning but don't reject - let higher layers handle
-            }
-        }
-
-        // For virtual ethernet, we don't need hardware checksum offload
-        // as the data is transferred in-memory. Packet is already valid.
         Ok(())
     }
 
@@ -490,6 +463,37 @@ impl NetworkDevice for VirtualEthernetDevice {
             link_speed: Some(10000), // 10 Gbps
             duplex: Some(DuplexMode::Full),
         }
+    }
+}
+
+impl VirtualEthernetDevice {
+    /// Process packet for virtual ethernet transmission
+    fn process_transmission(&self, packet: &PacketBuffer) -> NetworkResult<()> {
+        // Real packet processing for virtual ethernet
+        // For virtual ethernet, packets are transferred in-memory so no hardware
+        // processing is needed. Validate the frame structure only.
+
+        if packet.length < 14 {
+            return Err(NetworkError::InvalidPacket);
+        }
+
+        // Validate Ethernet frame structure
+        let packet_data = packet.as_slice();
+
+        // Check destination MAC (first 6 bytes)
+        if packet_data.len() >= 6 {
+            let dest_mac = &packet_data[0..6];
+            // All zeros MAC is invalid (except for special cases)
+            // Broadcast (all ones) is valid
+            if dest_mac.iter().all(|&b| b == 0x00) {
+                // All zeros is generally invalid for a destination MAC
+                // Log warning but don't reject - let higher layers handle
+            }
+        }
+
+        // For virtual ethernet, we don't need hardware checksum offload
+        // as the data is transferred in-memory. Packet is already valid.
+        Ok(())
     }
 }
 

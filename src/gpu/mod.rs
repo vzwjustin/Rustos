@@ -1281,3 +1281,11 @@ pub fn set_power_state(state: GPUPowerState) -> Result<(), &'static str> {
     let mut gpu_system = GPU_SYSTEM.lock();
     gpu_system.set_power_state(state)
 }
+
+/// Get GPU manager instance (stub for compatibility)
+///
+/// Returns None as the GPU manager is not yet implemented.
+/// This function exists to satisfy dependencies in the graphics subsystem.
+pub fn get_gpu_manager() -> Option<&'static GPUSystem> {
+    None
+}

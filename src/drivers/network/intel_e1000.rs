@@ -8,6 +8,7 @@ use crate::net::{NetworkError, NetworkAddress};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use core::ptr;
 
 /// Network device types

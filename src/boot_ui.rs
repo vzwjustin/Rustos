@@ -8,6 +8,7 @@ use crate::vga_buffer::{Color, VGA_WRITER};
 use crate::{print, println};
 use alloc::string::String;
 use alloc::format;
+use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 
 /// Boot stage enumeration for tracking progress
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,7 +718,7 @@ fn identify_network_devices() -> usize {
 
 /// Initialize memory management with progress display
 pub fn memory_init_progress(
-    memory_map: &bootloader::MemoryMap,
+    memory_map: &MemoryMap,
     physical_offset: x86_64::VirtAddr,
 ) -> MemoryInitResult {
     begin_stage(BootStage::MemoryInit, 4);
@@ -773,7 +774,7 @@ pub fn memory_init_progress(
     result
 }
 
-fn parse_memory_map(memory_map: &bootloader::MemoryMap) -> (usize, usize, usize) {
+fn parse_memory_map(memory_map: &MemoryMap) -> (usize, usize, usize) {
     let mut total: usize = 0;
     let mut usable: usize = 0;
     let regions = memory_map.iter().count();
@@ -781,7 +782,7 @@ fn parse_memory_map(memory_map: &bootloader::MemoryMap) -> (usize, usize, usize)
     for region in memory_map.iter() {
         let size = region.range.end_addr() as usize - region.range.start_addr() as usize;
         total += size;
-        if region.region_type == bootloader::MemoryRegionType::Usable {
+        if region.region_type == MemoryRegionType::Usable {
             usable += size;
         }
     }

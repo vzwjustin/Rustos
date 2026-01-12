@@ -3,11 +3,12 @@
 //! Driver for Realtek RTL8139, RTL8169, RTL8168, and RTL8111 series Ethernet controllers.
 //! Supports both Fast Ethernet (100 Mbps) and Gigabit Ethernet (1000 Mbps) devices.
 
-use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, NetworkDriver, DeviceState, DeviceCapabilities};
+use super::{ExtendedNetworkCapabilities, EnhancedNetworkStats, NetworkDriver, DeviceState, DeviceCapabilities, DeviceType, NetworkStats};
 use crate::net::{NetworkError, MacAddress};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 /// Realtek device information
 #[derive(Debug, Clone, Copy)]

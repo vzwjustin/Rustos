@@ -6,6 +6,7 @@
 use super::{StorageDriver, StorageDeviceType, StorageDeviceState, StorageCapabilities, StorageError, StorageStats};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::format;
 
 /// USB Mass Storage Class codes
