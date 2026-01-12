@@ -24,6 +24,7 @@ pub enum InterruptIndex {
     SerialPort1 = PIC_1_OFFSET + 4,
     SerialPort2 = PIC_1_OFFSET + 3,
     SpuriousInterrupt = PIC_1_OFFSET + 7,
+    Mouse = PIC_2_OFFSET + 4, // IRQ 12
 }
 
 impl InterruptIndex {
@@ -64,6 +65,7 @@ lazy_static! {
         // Hardware interrupt handlers
         idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+        idt[InterruptIndex::Mouse.as_usize()].set_handler_fn(mouse_interrupt_handler);
         idt[InterruptIndex::SerialPort1.as_usize()].set_handler_fn(serial_port1_interrupt_handler);
         idt[InterruptIndex::SerialPort2.as_usize()].set_handler_fn(serial_port2_interrupt_handler);
         idt[InterruptIndex::SpuriousInterrupt.as_usize()].set_handler_fn(spurious_interrupt_handler);
@@ -84,6 +86,7 @@ pub static PICS: Mutex<ChainedPics> =
 pub struct InterruptStats {
     pub timer_count: u64,
     pub keyboard_count: u64,
+    pub mouse_count: u64,
     pub serial_count: u64,
     pub exception_count: u64,
     pub page_fault_count: u64,
@@ -95,6 +98,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 // Thread-safe interrupt statistics using atomic operations
 static TIMER_COUNT: AtomicU64 = AtomicU64::new(0);
 static KEYBOARD_COUNT: AtomicU64 = AtomicU64::new(0);
+static MOUSE_COUNT: AtomicU64 = AtomicU64::new(0);
 static SERIAL_COUNT: AtomicU64 = AtomicU64::new(0);
 static EXCEPTION_COUNT: AtomicU64 = AtomicU64::new(0);
 static PAGE_FAULT_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -170,7 +174,12 @@ fn configure_standard_irqs_apic() -> Result<(), &'static str> {
     if let Err(e) = crate::apic::configure_irq(1, InterruptIndex::Keyboard.as_u8(), cpu_id) {
         crate::serial_println!("Warning: Failed to configure keyboard IRQ: {}", e);
     }
-    
+
+    // Configure mouse (IRQ 12)
+    if let Err(e) = crate::apic::configure_irq(12, InterruptIndex::Mouse.as_u8(), cpu_id) {
+        crate::serial_println!("Warning: Failed to configure mouse IRQ: {}", e);
+    }
+
     // Configure serial ports
     if let Err(e) = crate::apic::configure_irq(4, InterruptIndex::SerialPort1.as_u8(), cpu_id) {
         crate::serial_println!("Warning: Failed to configure serial port 1 IRQ: {}", e);
@@ -192,6 +201,7 @@ pub fn get_stats() -> InterruptStats {
     InterruptStats {
         timer_count: TIMER_COUNT.load(Ordering::Relaxed),
         keyboard_count: KEYBOARD_COUNT.load(Ordering::Relaxed),
+        mouse_count: MOUSE_COUNT.load(Ordering::Relaxed),
         serial_count: SERIAL_COUNT.load(Ordering::Relaxed),
         exception_count: EXCEPTION_COUNT.load(Ordering::Relaxed),
         page_fault_count: PAGE_FAULT_COUNT.load(Ordering::Relaxed),
@@ -617,6 +627,29 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
             crate::apic::end_of_interrupt();
         } else {
             PICS.lock().notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+        }
+    }
+}
+
+extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    // Read mouse data byte from PS/2 controller
+    let mut port: Port<u8> = Port::new(0x60);
+    let byte = unsafe { port.read() };
+
+    // Process the byte through PS/2 mouse driver
+    if let Some(packet) = crate::drivers::ps2_mouse::process_byte(byte) {
+        // Got a complete mouse packet - send to input manager
+        crate::drivers::input_manager::handle_mouse_packet(packet);
+    }
+
+    MOUSE_COUNT.fetch_add(1, Ordering::Relaxed);
+
+    unsafe {
+        // Send EOI to APIC if available, otherwise use PIC
+        if crate::apic::apic_system().lock().is_initialized() {
+            crate::apic::end_of_interrupt();
+        } else {
+            PICS.lock().notify_end_of_interrupt(InterruptIndex::Mouse.as_u8());
         }
     }
 }

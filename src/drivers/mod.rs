@@ -8,6 +8,9 @@ pub mod pci;
 pub mod hotplug;
 pub mod storage;
 pub mod network;
+pub mod ps2_controller;
+pub mod ps2_mouse;
+pub mod input_manager;
 
 // Removed unused imports
 use alloc::format;
@@ -31,6 +34,15 @@ pub use hotplug::{
     init as init_hotplug, hotplug_manager, add_device as add_hotplug_device,
     remove_device as remove_hotplug_device, process_events as process_hotplug_events,
     get_hotplug_stats, HotplugDevice, HotplugEvent, DeviceState,
+};
+
+// Re-export input functionality
+pub use ps2_controller::{init as init_ps2_controller, Ps2Port, Ps2DeviceType};
+pub use ps2_mouse::{init as init_ps2_mouse, MousePacket, MouseButtons, MouseProtocol};
+pub use input_manager::{
+    init as init_input_manager, InputEvent, MouseButton, CursorBounds,
+    get_event as get_input_event, get_cursor_position, set_cursor_position,
+    set_cursor_bounds, handle_mouse_packet, handle_keyboard_event,
 };
 
 // Re-export storage functionality
