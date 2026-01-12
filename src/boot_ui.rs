@@ -818,18 +818,48 @@ impl MemoryInitResult {
 
 /// Load drivers with progress display
 pub fn driver_loading_progress() -> DriverLoadResult {
-    begin_stage(BootStage::DriverLoading, 5);
+    begin_stage(BootStage::DriverLoading, 8);
 
     let mut result = DriverLoadResult::new();
 
+    // PS/2 Controller
+    update_substage(1, "Initializing PS/2 controller...");
+    match crate::drivers::ps2_controller::init() {
+        Ok(()) => {
+            report_success("PS/2 controller initialized");
+            result.ps2_controller_loaded = true;
+        }
+        Err(_) => {
+            report_warning("PS/2", "Controller initialization failed");
+        }
+    }
+
     // Keyboard driver
-    update_substage(1, "Loading keyboard driver...");
+    update_substage(2, "Loading keyboard driver...");
     crate::keyboard::init();
     report_success("PS/2 keyboard driver loaded");
     result.keyboard_loaded = true;
 
+    // Mouse driver
+    update_substage(3, "Loading PS/2 mouse driver...");
+    match crate::drivers::ps2_mouse::init() {
+        Ok(()) => {
+            report_success("PS/2 mouse driver loaded");
+            result.mouse_loaded = true;
+        }
+        Err(e) => {
+            report_warning("Mouse", e);
+        }
+    }
+
+    // Input Manager
+    update_substage(4, "Initializing input manager...");
+    crate::drivers::input_manager::init();
+    report_success("Input manager initialized");
+    result.input_manager_loaded = true;
+
     // Timer driver
-    update_substage(2, "Loading timer driver...");
+    update_substage(5, "Loading timer driver...");
     match crate::time::init() {
         Ok(()) => {
             report_success("Timer system initialized");
@@ -841,17 +871,17 @@ pub fn driver_loading_progress() -> DriverLoadResult {
     }
 
     // Storage drivers
-    update_substage(3, "Loading storage drivers...");
+    update_substage(6, "Loading storage drivers...");
     report_success("IDE/AHCI drivers ready");
     result.storage_loaded = true;
 
     // Network drivers
-    update_substage(4, "Loading network drivers...");
+    update_substage(7, "Loading network drivers...");
     report_success("Network stack initialized");
     result.network_loaded = true;
 
     // Serial driver
-    update_substage(5, "Loading serial port driver...");
+    update_substage(8, "Loading serial port driver...");
     report_success("Serial port driver loaded");
     result.serial_loaded = true;
 
@@ -864,6 +894,9 @@ pub fn driver_loading_progress() -> DriverLoadResult {
 /// Driver loading result
 pub struct DriverLoadResult {
     pub keyboard_loaded: bool,
+    pub ps2_controller_loaded: bool,
+    pub mouse_loaded: bool,
+    pub input_manager_loaded: bool,
     pub timer_loaded: bool,
     pub storage_loaded: bool,
     pub network_loaded: bool,
@@ -874,6 +907,9 @@ impl DriverLoadResult {
     pub fn new() -> Self {
         Self {
             keyboard_loaded: false,
+            ps2_controller_loaded: false,
+            mouse_loaded: false,
+            input_manager_loaded: false,
             timer_loaded: false,
             storage_loaded: false,
             network_loaded: false,

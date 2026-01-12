@@ -686,18 +686,16 @@ fn modern_desktop_main_loop() -> ! {
     let mut last_render_time: u64 = 0;
     let target_frame_time_ms: u64 = 16; // ~60 FPS target
 
-    // Mouse state for software cursor
-    let mut mouse_x: usize = 320;  // Start at center
-    let mut mouse_y: usize = 240;
-    let mut mouse_button_left: bool = false;
-    let mut mouse_button_right: bool = false;
-
     // Window interaction state
     let mut _dragging_window: Option<desktop::WindowId> = None;
     let mut _drag_start_x: usize = 0;
     let mut _drag_start_y: usize = 0;
     let mut _window_start_x: usize = 0;
     let mut _window_start_y: usize = 0;
+
+    // Set cursor bounds for input manager
+    use drivers::{set_cursor_bounds, get_cursor_position};
+    set_cursor_bounds(639, 479); // VGA 640x480
 
     // Initial render
     desktop::invalidate_desktop();
@@ -711,32 +709,45 @@ fn modern_desktop_main_loop() -> ! {
         // Input Processing Phase
         // ====================================================================
 
-        // Process all pending keyboard events
-        while let Some(key_event) = keyboard::get_key_event() {
-            match key_event {
-                keyboard::KeyEvent::CharacterPress(c) => {
-                    // Route character input to focused window
-                    handle_keyboard_character(c, &mut mouse_x, &mut mouse_y,
-                                               &mut mouse_button_left, &mut mouse_button_right);
+        // Process all pending input events from the unified input manager
+        while let Some(input_event) = drivers::get_input_event() {
+            match input_event {
+                drivers::InputEvent::KeyPress(key_event) => {
+                    // Handle keyboard press events
+                    handle_keyboard_input(key_event);
                 }
-                keyboard::KeyEvent::SpecialPress(special_key) => {
-                    // Handle special keys (function keys, modifiers, etc.)
-                    handle_special_key(special_key, &mut mouse_x, &mut mouse_y);
-                }
-                keyboard::KeyEvent::CharacterRelease(_) |
-                keyboard::KeyEvent::SpecialRelease(_) => {
+                drivers::InputEvent::KeyRelease(_key_event) => {
                     // Key release events - could be used for modifier tracking
                 }
+                drivers::InputEvent::MouseMove { x, y } => {
+                    // Real hardware mouse movement
+                    desktop::handle_mouse_move(x, y);
+                }
+                drivers::InputEvent::MouseButtonDown { button, x, y } => {
+                    // Convert input manager button to desktop button
+                    let desktop_button = match button {
+                        drivers::MouseButton::Left => desktop::MouseButton::Left,
+                        drivers::MouseButton::Right => desktop::MouseButton::Right,
+                        drivers::MouseButton::Middle => desktop::MouseButton::Middle,
+                        _ => continue, // Ignore extra buttons for now
+                    };
+                    desktop::handle_mouse_down(x, y, desktop_button);
+                }
+                drivers::InputEvent::MouseButtonUp { button, x, y } => {
+                    // Convert input manager button to desktop button
+                    let desktop_button = match button {
+                        drivers::MouseButton::Left => desktop::MouseButton::Left,
+                        drivers::MouseButton::Right => desktop::MouseButton::Right,
+                        drivers::MouseButton::Middle => desktop::MouseButton::Middle,
+                        _ => continue, // Ignore extra buttons for now
+                    };
+                    desktop::handle_mouse_up(x, y, desktop_button);
+                }
+                drivers::InputEvent::MouseScroll { delta, x, y } => {
+                    // Handle scroll wheel
+                    desktop::handle_scroll(x, y, delta as i32);
+                }
             }
-        }
-
-        // Update cursor position in window manager
-        desktop::handle_mouse_move(mouse_x, mouse_y);
-
-        // Handle mouse button state
-        if mouse_button_left {
-            desktop::handle_mouse_down(mouse_x, mouse_y, desktop::MouseButton::Left);
-            mouse_button_left = false; // Single click
         }
 
         // ====================================================================
@@ -765,8 +776,12 @@ fn modern_desktop_main_loop() -> ! {
             // Render the desktop (windows, taskbar, dock)
             desktop::render_desktop();
 
+            // Get current mouse position from input manager
+            let (mouse_x, mouse_y) = get_cursor_position();
+            let button_state = drivers::input_manager::get_button_states();
+
             // Render mouse cursor overlay
-            render_mouse_cursor(mouse_x, mouse_y, mouse_button_left);
+            render_mouse_cursor(mouse_x, mouse_y, button_state.left);
 
             // Present the frame
             graphics::framebuffer::present();
@@ -798,7 +813,59 @@ fn modern_desktop_main_loop() -> ! {
     }
 }
 
-/// Handle keyboard character input with mouse simulation
+/// Handle keyboard input events (unified keyboard handler for modern desktop)
+fn handle_keyboard_input(key_event: keyboard::KeyEvent) {
+    match key_event {
+        keyboard::KeyEvent::CharacterPress(c) => {
+            let key_code = c as u8;
+
+            // Forward character input to desktop/window manager
+            desktop::handle_key_down(key_code);
+
+            // Log significant keypresses for debugging
+            if c == '\x1b' { // ESC
+                log_debug!("input", "ESC pressed - could trigger menu");
+            }
+        }
+        keyboard::KeyEvent::SpecialPress(special_key) => {
+            // Map special keys to key codes for desktop
+            let key_code = match special_key {
+                keyboard::SpecialKey::Escape => 27,
+                keyboard::SpecialKey::Enter => 13,
+                keyboard::SpecialKey::Backspace => 8,
+                keyboard::SpecialKey::Tab => 9,
+                keyboard::SpecialKey::F1 => 112,  // Help
+                keyboard::SpecialKey::F2 => 113,  // Rename
+                keyboard::SpecialKey::F3 => 114,  // Search
+                keyboard::SpecialKey::F4 => 115,  // Close (Alt+F4)
+                keyboard::SpecialKey::F5 => 116,  // Refresh
+                keyboard::SpecialKey::F6 => 117,
+                keyboard::SpecialKey::F7 => 118,
+                keyboard::SpecialKey::F8 => 119,
+                keyboard::SpecialKey::F9 => 120,
+                keyboard::SpecialKey::F10 => 121,
+                keyboard::SpecialKey::F11 => 122, // Fullscreen
+                keyboard::SpecialKey::F12 => 123, // Debug console
+                keyboard::SpecialKey::Insert => 45,
+                keyboard::SpecialKey::Delete => 46,
+                keyboard::SpecialKey::Home => 36,
+                keyboard::SpecialKey::End => 35,
+                keyboard::SpecialKey::PageUp => 33,
+                keyboard::SpecialKey::PageDown => 34,
+                keyboard::SpecialKey::ArrowUp => 38,
+                keyboard::SpecialKey::ArrowDown => 40,
+                keyboard::SpecialKey::ArrowLeft => 37,
+                keyboard::SpecialKey::ArrowRight => 39,
+                _ => return, // Ignore other special keys
+            };
+
+            desktop::handle_key_down(key_code);
+        }
+        _ => {}
+    }
+}
+
+/// Handle keyboard character input with mouse simulation (legacy - kept for text mode desktop)
 fn handle_keyboard_character(c: char, mouse_x: &mut usize, mouse_y: &mut usize,
                               button_left: &mut bool, _button_right: &mut bool) {
     let key_code = c as u8;
