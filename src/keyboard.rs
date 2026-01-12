@@ -497,6 +497,43 @@ pub fn has_key_events() -> bool {
     handler.has_key_events()
 }
 
+/// Check if keyboard is initialized (always true after module init)
+pub fn is_initialized() -> bool {
+    true // Keyboard is lazily initialized via lazy_static
+}
+
+/// Get keyboard statistics
+pub fn get_statistics() -> KeyboardStats {
+    let handler = KEYBOARD_HANDLER.lock();
+    handler.stats
+}
+
+/// Extended keyboard statistics with modifier states
+#[derive(Debug, Clone, Copy)]
+pub struct ExtendedKeyboardStats {
+    pub basic_stats: KeyboardStats,
+    pub caps_lock_enabled: bool,
+    pub num_lock_enabled: bool,
+    pub scroll_lock_enabled: bool,
+    pub shift_pressed: bool,
+    pub ctrl_pressed: bool,
+    pub alt_pressed: bool,
+}
+
+/// Get extended keyboard statistics including modifier states
+pub fn get_extended_statistics() -> ExtendedKeyboardStats {
+    let handler = KEYBOARD_HANDLER.lock();
+    ExtendedKeyboardStats {
+        basic_stats: handler.stats,
+        caps_lock_enabled: handler.modifiers.caps_lock,
+        num_lock_enabled: handler.modifiers.num_lock,
+        scroll_lock_enabled: handler.modifiers.scroll_lock,
+        shift_pressed: handler.modifiers.shift,
+        ctrl_pressed: handler.modifiers.ctrl,
+        alt_pressed: handler.modifiers.alt,
+    }
+}
+
 /// Get current modifier state
 pub fn modifier_state() -> ModifierState {
     let handler = KEYBOARD_HANDLER.lock();

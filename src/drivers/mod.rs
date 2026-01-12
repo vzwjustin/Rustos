@@ -11,6 +11,7 @@ pub mod network;
 pub mod ps2_controller;
 pub mod ps2_mouse;
 pub mod input_manager;
+pub mod hardware_report;
 
 // Removed unused imports
 use alloc::format;
@@ -43,6 +44,15 @@ pub use input_manager::{
     init as init_input_manager, InputEvent, MouseButton, CursorBounds,
     get_event as get_input_event, get_cursor_position, set_cursor_position,
     set_cursor_bounds, handle_mouse_packet, handle_keyboard_event,
+};
+
+// Re-export hardware reporting functionality
+pub use hardware_report::{
+    HardwareReport, DeviceReport, DeviceStatus,
+    print_quick_status as print_peripheral_status,
+    check_critical_peripherals,
+    get_mouse_debug_info,
+    get_input_manager_debug_info,
 };
 
 // Re-export storage functionality
