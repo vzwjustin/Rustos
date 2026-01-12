@@ -81,6 +81,8 @@ mod logging;
 mod testing;
 // Include testing framework core (used by testing module)
 mod testing_framework;
+// Include I/O optimization and scheduling system
+mod io_optimized;
 // Include performance monitoring
 mod performance;
 mod performance_monitor;
