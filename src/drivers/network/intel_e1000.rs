@@ -76,38 +76,8 @@ impl MacAddress {
     }
 }
 
-/// Network statistics
-#[derive(Debug, Clone, Default)]
-pub struct NetworkStats {
-    pub rx_packets: u64,
-    pub tx_packets: u64,
-    pub rx_bytes: u64,
-    pub tx_bytes: u64,
-    pub rx_errors: u64,
-    pub tx_errors: u64,
-    pub rx_dropped: u64,
-    pub tx_dropped: u64,
-}
-
-/// Network driver trait
-pub trait NetworkDriver {
-    fn name(&self) -> &str;
-    fn device_type(&self) -> DeviceType;
-    fn state(&self) -> DeviceState;
-    fn capabilities(&self) -> &DeviceCapabilities;
-    fn init(&mut self) -> Result<(), NetworkError>;
-    fn start(&mut self) -> Result<(), NetworkError>;
-    fn stop(&mut self) -> Result<(), NetworkError>;
-    fn send_packet(&mut self, packet: &[u8]) -> Result<(), NetworkError>;
-    fn receive_packet(&mut self) -> Result<Option<Vec<u8>>, NetworkError>;
-    fn get_mac_address(&self) -> MacAddress;
-    fn set_mac_address(&mut self, mac: MacAddress) -> Result<(), NetworkError>;
-    fn get_link_status(&self) -> (bool, u32, bool);
-    fn get_statistics(&self) -> NetworkStats;
-    fn handle_interrupt(&mut self) -> Result<(), NetworkError>;
-    fn set_power_state(&mut self, state: PowerState) -> Result<(), NetworkError>;
-    fn configure_wol(&mut self, config: WakeOnLanConfig) -> Result<(), NetworkError>;
-}
+// Use NetworkDriver trait and types from parent module
+use super::{NetworkDriver, NetworkStats};
 
 /// Intel E1000 device information
 #[derive(Debug, Clone, Copy)]
