@@ -1,0 +1,105 @@
+[package]
+name = "rustos"
+version = "1.0.0"
+edition = "2021"
+authors = ["RustOS Team"]
+description = "RustOS - Hardware-Optimized AI Operating System with Desktop Environment"
+
+# [lib]
+# name = "rustos"
+# path = "src/lib.rs"
+
+[[bin]]
+name = "rustos"
+path = "src/main.rs"
+
+[dependencies]
+# Core bootloader support (compatible with bootimage)
+# bootloader_api = "0.11.3" # Disabled for bootimage compatibility
+
+# Low-level hardware access
+volatile = "0.2.6"
+x86_64 = "0.14.2"
+
+# Synchronization primitives
+spin = "0.9"
+
+# Serial and keyboard support
+uart_16550 = "0.2.0"
+pc-keyboard = "0.5.0"
+
+# Interrupt handling
+pic8259 = "0.10.1"
+
+# Memory allocation
+linked_list_allocator = "0.9.0"
+
+# No-std collections
+heapless = "0.7"
+
+# Compression support for package management
+[dependencies.miniz_oxide]
+version = "0.7"
+default-features = false
+features = ["with-alloc"]
+
+# Lazy static for global variables
+[dependencies.lazy_static]
+version = "1.0"
+features = ["spin_no_std"]
+
+# Additional no_std compatible dependencies
+[dependencies.nb]
+version = "1.1"
+default-features = false
+
+[dependencies.embedded-hal]
+version = "0.2"
+default-features = false
+
+[dependencies.log]
+version = "0.4"
+default-features = false
+
+[dependencies.paste]
+version = "1.0"
+
+# Bootloader support for bootimage compatibility
+[dependencies.bootloader]
+version = "0.9.23"
+features = ["map_physical_memory"]
+
+# Bitflags for flag constants
+[dependencies.bitflags]
+version = "1.3"
+default-features = false
+
+# Math library for no_std
+[dependencies.libm]
+version = "0.2"
+default-features = false
+
+# Build profiles
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+
+# Bootimage configuration
+[package.metadata.bootimage]
+test-args = [
+    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+    "-serial", "stdio",
+    "-display", "gtk"
+]
+test-success-exit-code = 33
+
+# Build configuration
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+
+[build-dependencies]
+cc = "1.0"

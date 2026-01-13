@@ -1,0 +1,67 @@
+#!/bin/sh
+# RustOS Init Script - First userspace program
+
+echo ""
+echo "=========================================="
+echo "  RustOS + Linux Userspace"
+echo "=========================================="
+echo ""
+echo "Kernel: RustOS v1.0 (Custom Rust Kernel)"
+echo "Userspace: Alpine Linux 3.19"
+echo ""
+
+# Mount essential filesystems
+echo "Mounting filesystems..."
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+# Create device nodes if needed
+if [ ! -e /dev/console ]; then
+    mknod /dev/console c 5 1
+fi
+if [ ! -e /dev/null ]; then
+    mknod /dev/null c 1 3
+fi
+
+echo "Filesystems mounted."
+echo ""
+
+# Display system information
+echo "System Information:"
+uname -a
+echo ""
+echo "Memory:"
+free -m
+echo ""
+echo "Disk:"
+df -h
+echo ""
+
+# Start a simple framebuffer console
+echo "Starting framebuffer console..."
+
+# Check for framebuffer device
+if [ -e /dev/fb0 ]; then
+    echo "Framebuffer device detected: /dev/fb0"
+    # Could start fbterm or similar here
+else
+    echo "No framebuffer device found, using text console"
+fi
+
+echo ""
+echo "=========================================="
+echo "  Welcome to RustOS Linux Environment"
+echo "=========================================="
+echo ""
+echo "Available commands:"
+echo "  ls, cat, echo, mount, ps, top, etc."
+echo "  Type 'busybox --list' for full list"
+echo ""
+echo "To install packages: apk add <package>"
+echo "To get a GUI: apk add xorg-server xf86-video-fbdev jwm"
+echo ""
+
+# Start interactive shell
+echo "Starting shell..."
+exec /bin/sh
