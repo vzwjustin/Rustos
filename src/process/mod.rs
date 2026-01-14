@@ -9,6 +9,9 @@ use alloc::string::{String, ToString};
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use spin::{Mutex, RwLock};
 
+// Debug logging module name
+const MODULE: &str = "PROCESS";
+
 pub mod scheduler;
 pub mod syscalls;
 pub mod context;

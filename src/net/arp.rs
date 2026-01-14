@@ -23,6 +23,9 @@ use super::{NetworkAddress, NetworkResult, NetworkError};
 use alloc::{vec::Vec, collections::BTreeMap, string::String};
 use spin::RwLock;
 
+// Debug logging module name
+const MODULE: &str = "ARP";
+
 /// ARP entry states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArpEntryState {

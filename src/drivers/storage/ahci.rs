@@ -11,6 +11,9 @@ use alloc::{format, vec};
 use core::mem;
 use core::ptr;
 
+// Debug logging module name
+const MODULE: &str = "AHCI";
+
 /// AHCI vendor IDs and device IDs database
 #[derive(Debug, Clone, Copy)]
 pub struct AhciDeviceId {

@@ -16,6 +16,9 @@ use alloc::string::{String, ToString};
 use alloc::format;
 use core::fmt;
 
+// Debug logging module name
+const MODULE: &str = "GPU";
+
 pub mod memory;
 pub mod accel;
 pub mod opensource;

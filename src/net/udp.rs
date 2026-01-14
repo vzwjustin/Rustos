@@ -22,6 +22,9 @@ use super::{NetworkAddress, NetworkResult, NetworkError, PacketBuffer, NetworkSt
 use alloc::{vec, vec::Vec, collections::BTreeMap};
 use spin::RwLock;
 
+// Debug logging module name
+const MODULE: &str = "UDP";
+
 /// UDP header size
 pub const UDP_HEADER_SIZE: usize = 8;
 
@@ -37,7 +40,10 @@ pub struct UdpHeader {
 impl UdpHeader {
     /// Parse UDP header from packet buffer
     pub fn parse(buffer: &mut PacketBuffer) -> NetworkResult<Self> {
+        crate::log_trace!(MODULE, "Parsing UDP header from packet buffer");
+
         if buffer.remaining() < UDP_HEADER_SIZE {
+            crate::log_error!(MODULE, "UDP packet too small: {} bytes (min {})", buffer.remaining(), UDP_HEADER_SIZE);
             return Err(NetworkError::InvalidPacket);
         }
 
@@ -52,6 +58,9 @@ impl UdpHeader {
 
         let checksum_bytes = buffer.read(2).ok_or(NetworkError::InvalidPacket)?;
         let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
+
+        crate::log_debug!(MODULE, "Parsed UDP header: src_port={} dst_port={} length={} checksum=0x{:04x}",
+            source_port, dest_port, length, checksum);
 
         Ok(UdpHeader {
             source_port,

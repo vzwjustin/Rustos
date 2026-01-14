@@ -7,6 +7,9 @@ use core::ptr;
 use x86_64::VirtAddr;
 use crate::acpi::{MadtInfo, InterruptOverride};
 
+// Debug logging module name
+const MODULE: &str = "APIC";
+
 /// Local APIC register offsets
 #[repr(u32)]
 #[derive(Debug, Clone, Copy)]

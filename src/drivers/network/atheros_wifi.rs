@@ -7,6 +7,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 
+// Debug logging module name
+const MODULE: &str = "ATHEROS_WIFI";
+
 /// Atheros WiFi device IDs
 pub const ATHEROS_VENDOR_ID: u16 = 0x168C;
 

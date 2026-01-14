@@ -14,6 +14,9 @@ pub use framebuffer::{
 use spin::{Mutex, Once};
 use alloc::{format, string::String};
 
+// Debug logging module name
+const MODULE: &str = "GRAPHICS";
+
 /// Graphics system status
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphicsStatus {

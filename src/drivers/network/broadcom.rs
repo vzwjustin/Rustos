@@ -10,6 +10,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 
+// Debug logging module name
+const MODULE: &str = "BROADCOM";
+
 /// Broadcom device information
 #[derive(Debug, Clone, Copy)]
 pub struct BroadcomDeviceInfo {

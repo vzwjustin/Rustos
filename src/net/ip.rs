@@ -5,6 +5,9 @@
 use super::{NetworkAddress, NetworkResult, NetworkError, PacketBuffer, NetworkStack, Protocol};
 use alloc::vec::Vec;
 
+// Debug logging module name
+const MODULE: &str = "IP";
+
 /// IPv4 header minimum size
 pub const IPV4_HEADER_MIN_SIZE: usize = 20;
 
@@ -218,26 +221,30 @@ impl IPv6Header {
 
 /// Process IPv4 packet
 pub fn process_ipv4_packet(network_stack: &NetworkStack, mut packet: PacketBuffer) -> NetworkResult<()> {
+    crate::log_trace!(MODULE, "Processing IPv4 packet");
+
     let header = IPv4Header::parse(&mut packet)?;
-    
-    // Production: log only errors, not every packet
+
+    crate::log_debug!(MODULE, "IPv4 packet: {} -> {} proto={} ttl={} len={}",
+        header.source, header.destination, header.protocol, header.ttl, header.total_length);
 
     // Verify checksum
     let calculated_checksum = header.calculate_checksum();
     if calculated_checksum != header.checksum {
-        // Checksum mismatch - drop packet silently in production
+        crate::log_warn!(MODULE, "IPv4 checksum mismatch: got 0x{:04x}, expected 0x{:04x}",
+            header.checksum, calculated_checksum);
         return Err(NetworkError::InvalidPacket);
     }
 
     // Check if packet is for us
     if !is_packet_for_us(&header.destination) {
-        // Forward packet if we're a router
+        crate::log_debug!(MODULE, "IPv4 packet not for us, forwarding");
         return forward_ipv4_packet(network_stack, header, packet);
     }
 
     // Handle fragmentation
     if header.is_fragmented() {
-        // Fragmented packets not supported - drop silently
+        crate::log_debug!(MODULE, "Fragmented packet received (not supported), dropping");
         return Ok(());
     }
 

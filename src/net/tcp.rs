@@ -27,6 +27,9 @@ use alloc::{vec::Vec, collections::BTreeMap};
 use spin::RwLock;
 use core::cmp;
 
+// Debug logging module name
+const MODULE: &str = "TCP";
+
 /// TCP header minimum size
 pub const TCP_HEADER_MIN_SIZE: usize = 20;
 
@@ -156,7 +159,10 @@ impl TcpHeader {
 
     /// Parse TCP header from packet buffer
     pub fn parse(buffer: &mut PacketBuffer) -> NetworkResult<Self> {
+        crate::log_trace!(MODULE, "Parsing TCP header from packet buffer");
+
         if buffer.remaining() < TCP_HEADER_MIN_SIZE {
+            crate::log_error!(MODULE, "TCP packet too small: {} bytes (min {})", buffer.remaining(), TCP_HEADER_MIN_SIZE);
             return Err(NetworkError::InvalidPacket);
         }
 
@@ -189,11 +195,15 @@ impl TcpHeader {
         let header_length = (data_offset as usize) * 4;
         let options_length = header_length.saturating_sub(TCP_HEADER_MIN_SIZE);
         let options = if options_length > 0 {
+            crate::log_debug!(MODULE, "Parsing {} bytes of TCP options", options_length);
             let options_bytes = buffer.read(options_length).ok_or(NetworkError::InvalidPacket)?;
             options_bytes.to_vec()
         } else {
             Vec::new()
         };
+
+        crate::log_debug!(MODULE, "Parsed TCP header: src_port={} dst_port={} seq={} ack={} flags={:?} window={}",
+            source_port, dest_port, sequence_number, acknowledgment_number, flags, window_size);
 
         Ok(TcpHeader {
             source_port,
@@ -326,6 +336,9 @@ impl TcpConnection {
         remote_addr: NetworkAddress,
         remote_port: u16,
     ) -> Self {
+        crate::log_info!(MODULE, "Creating new TCP connection: {:?}:{} <-> {:?}:{}",
+            local_addr, local_port, remote_addr, remote_port);
+
         Self {
             local_addr,
             local_port,
@@ -568,17 +581,24 @@ pub fn process_packet(
     dst_ip: NetworkAddress,
     mut packet: PacketBuffer,
 ) -> NetworkResult<()> {
+    crate::log_trace!(MODULE, "Processing TCP packet from {:?} to {:?}", src_ip, dst_ip);
+
     let header = TcpHeader::parse(&mut packet)?;
-    
-    // Production: process TCP packet without debug output
+
+    crate::log_debug!(MODULE, "TCP packet: {}:{} -> {}:{} [flags: SYN={} ACK={} FIN={} RST={} seq={} ack={}]",
+        src_ip, header.source_port, dst_ip, header.dest_port,
+        header.flags.syn, header.flags.ack, header.flags.fin, header.flags.rst,
+        header.sequence_number, header.acknowledgment_number);
 
     // Find existing connection
     let connection_key = (dst_ip, header.dest_port, src_ip, header.source_port);
-    
+
     if let Some(mut connection) = TCP_MANAGER.get_connection(&dst_ip, header.dest_port, &src_ip, header.source_port) {
+        crate::log_debug!(MODULE, "Found existing connection in state {:?}", connection.state);
+
         // Process packet for existing connection
         process_connection_packet(&mut connection, &header, &packet.as_slice()[packet.position..])?;
-        
+
         // Update connection in manager
         TCP_MANAGER.update_connection(connection_key, |conn| {
             *conn = connection;
@@ -586,10 +606,11 @@ pub fn process_packet(
     } else {
         // Handle new connection attempt
         if header.flags.syn && !header.flags.ack {
-            // Handle new TCP connection attempt
+            crate::log_info!(MODULE, "New connection attempt from {}:{} to {}:{}",
+                src_ip, header.source_port, dst_ip, header.dest_port);
             handle_new_connection(dst_ip, header.dest_port, src_ip, header.source_port, &header)?;
         } else {
-            // Send RST for non-existent connection
+            crate::log_warn!(MODULE, "Received packet for non-existent connection, sending RST");
             send_rst_packet(dst_ip, header.dest_port, src_ip, header.source_port, header.sequence_number + 1)?;
         }
     }
@@ -770,24 +791,32 @@ fn handle_established_state(
     header: &TcpHeader,
     payload: &[u8],
 ) -> NetworkResult<()> {
+    crate::log_trace!(MODULE, "Handling ESTABLISHED state for connection {}:{} <-> {}:{}",
+        connection.local_addr, connection.local_port, connection.remote_addr, connection.remote_port);
+
     // Handle data reception
     if !payload.is_empty() {
+        crate::log_debug!(MODULE, "Received {} bytes of data (seq={}, expected={})",
+            payload.len(), header.sequence_number, connection.recv_sequence);
+
         if header.sequence_number == connection.recv_sequence {
             // In-order data
+            crate::log_debug!(MODULE, "In-order data received, adding to recv buffer");
             connection.recv_buffer.extend_from_slice(payload);
             connection.recv_sequence = connection.recv_sequence.wrapping_add(payload.len() as u32);
-            
+
             // Send ACK
             send_ack_packet(connection)?;
-            
+
             // Reset duplicate ACK counter
             connection.reset_duplicate_acks();
         } else if header.sequence_number > connection.recv_sequence {
             // Out-of-order data - store for later processing
-            // For now, just send duplicate ACK
+            crate::log_warn!(MODULE, "Out-of-order data received (gap detected), sending duplicate ACK");
             send_ack_packet(connection)?;
+        } else {
+            crate::log_debug!(MODULE, "Ignoring old/duplicate data");
         }
-        // Ignore old data (sequence_number < recv_sequence)
     }
 
     // Handle ACK
@@ -796,25 +825,28 @@ fn handle_established_state(
         if ack_num > connection.send_ack && ack_num <= connection.send_sequence {
             // Valid ACK
             let acked_bytes = ack_num.wrapping_sub(connection.send_ack);
+            crate::log_debug!(MODULE, "Valid ACK received, {} bytes acknowledged (cwnd={})", acked_bytes, connection.cwnd);
             connection.send_ack = ack_num;
-            
+
             // Update congestion window
             connection.update_cwnd(acked_bytes);
-            
+
             // Remove acknowledged data from send buffer
             if acked_bytes as usize <= connection.send_unacked.len() {
                 connection.send_unacked.drain(0..acked_bytes as usize);
             }
-            
+
             connection.reset_duplicate_acks();
         } else if ack_num == connection.send_ack {
             // Duplicate ACK
+            crate::log_warn!(MODULE, "Duplicate ACK received (count={})", connection.duplicate_acks + 1);
             connection.handle_duplicate_ack();
         }
     }
 
     // Handle FIN
     if header.flags.fin {
+        crate::log_info!(MODULE, "FIN received, transitioning to CLOSE_WAIT");
         connection.recv_sequence = connection.recv_sequence.wrapping_add(1);
         connection.state = TcpState::CloseWait;
         send_ack_packet(connection)?;
@@ -822,6 +854,7 @@ fn handle_established_state(
 
     // Handle RST
     if header.flags.rst {
+        crate::log_warn!(MODULE, "RST received, closing connection");
         connection.state = TcpState::Closed;
     }
 

@@ -12,6 +12,9 @@ use alloc::{vec, vec::Vec, string::{String, ToString}, collections::BTreeMap, fo
 use spin::RwLock;
 use core::mem;
 
+// Debug logging module name
+const MODULE: &str = "FAT32";
+
 /// FAT32 signature
 const FAT32_SIGNATURE: u16 = 0xAA55;
 const FAT32_FSINFO_SIGNATURE1: u32 = 0x41615252;

@@ -86,6 +86,8 @@ mod error;
 mod health;
 // Include comprehensive logging and debugging
 mod logging;
+// Include enhanced debugging utilities
+mod debug_utils;
 // Include comprehensive testing framework
 mod testing;
 // Include testing framework core (used by testing module)

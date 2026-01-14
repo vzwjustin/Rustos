@@ -22,6 +22,9 @@ use super::{NetworkAddress, NetworkResult, NetworkError, PacketBuffer, NetworkSt
 use alloc::vec::Vec;
 use alloc::string::ToString;
 
+// Debug logging module name
+const MODULE: &str = "ETHERNET";
+
 /// Ethernet frame header size
 pub const ETHERNET_HEADER_SIZE: usize = 14;
 
@@ -125,31 +128,37 @@ impl EthernetHeader {
 
 /// Process incoming Ethernet frame
 pub fn process_frame(network_stack: &NetworkStack, mut packet: PacketBuffer) -> NetworkResult<()> {
+    crate::log_trace!(MODULE, "Processing Ethernet frame");
+
     // Parse Ethernet header
     let header = EthernetHeader::parse(&mut packet)?;
-    
-    // Production: Ethernet frame processed silently
+
+    crate::log_debug!(MODULE, "Ethernet frame: {} -> {} type={:?}",
+        header.source, header.destination, header.ether_type);
 
     // Check if frame is for us (broadcast, multicast, or our MAC)
     if !is_frame_for_us(&header.destination) {
+        crate::log_trace!(MODULE, "Frame not for us, dropping");
         return Ok(()) // Silently drop
     }
 
     // Process based on EtherType
+    crate::log_debug!(MODULE, "Processing EtherType: {:?}", header.ether_type);
     match header.ether_type {
         EtherType::IPv4 => {
+            crate::log_trace!(MODULE, "Dispatching to IPv4 handler");
             super::ip::process_ipv4_packet(network_stack, packet)
         }
         EtherType::IPv6 => {
+            crate::log_trace!(MODULE, "Dispatching to IPv6 handler");
             super::ip::process_ipv6_packet(network_stack, packet)
         }
         EtherType::ARP => {
+            crate::log_trace!(MODULE, "Dispatching to ARP handler");
             process_arp_packet(network_stack, packet)
         }
         EtherType::VLAN => {
-            // Note: VLAN tagging (IEEE 802.1Q) is not yet implemented.
-            // Future enhancement will parse VLAN tags and route to appropriate virtual interface.
-            // Packets are currently dropped to prevent incorrect processing.
+            crate::log_debug!(MODULE, "VLAN frame received (not yet supported), dropping");
             Ok(())
         }
     }

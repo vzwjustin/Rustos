@@ -10,6 +10,9 @@ use alloc::boxed::Box;
 use alloc::vec;
 use core::arch::asm;
 
+// Debug logging module name
+const MODULE: &str = "IDE";
+
 /// IDE register offsets for primary controller
 pub const IDE_PRIMARY_IO: u16 = 0x1F0;
 pub const IDE_PRIMARY_CTRL: u16 = 0x3F6;

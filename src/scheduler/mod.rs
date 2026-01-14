@@ -14,6 +14,9 @@ use spin::{Mutex, RwLock};
 use lazy_static::lazy_static;
 use x86_64::VirtAddr;
 
+// Debug logging module name
+const MODULE: &str = "SCHEDULER";
+
 /// Process ID type
 pub type Pid = u32;
 

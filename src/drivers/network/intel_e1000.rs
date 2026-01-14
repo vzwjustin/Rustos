@@ -15,6 +15,9 @@ use core::ptr;
 use super::{NetworkDriver, NetworkStats, DeviceState};
 use crate::net::device::{DeviceType, DeviceCapabilities};
 
+// Debug logging module name
+const MODULE: &str = "INTEL_E1000";
+
 /// Intel E1000 device information
 #[derive(Debug, Clone, Copy)]
 pub struct IntelE1000DeviceInfo {

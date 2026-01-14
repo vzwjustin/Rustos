@@ -8,6 +8,9 @@ use core::{mem, slice};
 use lazy_static::lazy_static;
 use spin::RwLock;
 
+// Debug logging module name
+const MODULE: &str = "ACPI";
+
 /// ACPI discovery information captured during boot
 #[derive(Debug, Clone)]
 pub struct AcpiInfo {

@@ -11,6 +11,9 @@ use alloc::{format, vec};
 use core::mem;
 use core::ptr;
 
+// Debug logging module name
+const MODULE: &str = "NVME";
+
 /// NVMe controller register offsets
 #[repr(u64)]
 pub enum NvmeReg {

@@ -12,6 +12,9 @@ use alloc::{vec, vec::Vec, string::{String, ToString}, collections::BTreeMap, fo
 use spin::RwLock;
 use core::mem;
 
+// Debug logging module name
+const MODULE: &str = "EXT4";
+
 /// EXT4 superblock magic number
 const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 
